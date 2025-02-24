@@ -1,0 +1,28 @@
+services:
+  wardrobe-api-gateway:
+    build:
+      context: .
+      dockerfile: ./apps/wardrobe-api-gateway/DockerFile
+      target: development
+    command:  npm run start:dev wardrobe-api-gateway
+    env_file:
+      - ./apps/wardrobe-api-gateway/.env
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    ports:
+      - '3000:3000'
+
+  wardrobe:
+    build:
+      context: .
+      dockerfile: ./apps/wardrobe/DockerFile
+      target: development
+    command:  npm run start:dev wardrobe
+    env_file:
+      - ./apps/wardrobe/.env
+    depends_on:
+      - wardrobe-api-gateway
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules

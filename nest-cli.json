@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/wardrobe-api-gateway/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/wardrobe-api-gateway/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/wardrobe-api-gateway",
+  "projects": {
+    "wardrobe-api-gateway": {
+      "type": "application",
+      "root": "apps/wardrobe-api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/wardrobe-api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/wardrobe-api-gateway/tsconfig.app.json"
+      }
+    },
+    "wardrobe": {
+      "type": "application",
+      "root": "apps/wardrobe",
+      "entryFile": "main",
+      "sourceRoot": "apps/wardrobe/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/wardrobe/tsconfig.app.json"
+      }
+    }
+  }
+}
