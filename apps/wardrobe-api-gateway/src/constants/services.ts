@@ -1,0 +1,1 @@
+export const WARDROBE_SERVICE = 'WARDROBE';

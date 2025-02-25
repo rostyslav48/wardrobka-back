@@ -1,4 +1,9 @@
 services:
+  rabbitmq:
+    image: rabbitmq
+    ports:
+      - '5672:5672'
+
   wardrobe-api-gateway:
     build:
       context: .
@@ -7,6 +12,8 @@ services:
     command:  npm run start:dev wardrobe-api-gateway
     env_file:
       - ./apps/wardrobe-api-gateway/.env
+    depends_on:
+      - rabbitmq
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
@@ -22,6 +29,7 @@ services:
     env_file:
       - ./apps/wardrobe/.env
     depends_on:
+      - rabbitmq
       - wardrobe-api-gateway
     volumes:
       - .:/usr/src/app
