@@ -1,7 +1,7 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { RmqService } from './rmq.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 
 interface RmqModuleOptions {
   name: string;
@@ -26,7 +26,7 @@ export class RmqModule {
                 queue: configService.get<string>(`RABBIT_MQ_${name}_QUEUE`),
               },
             }),
-            inject: [ConfigModule],
+            inject: [ConfigService],
           },
         ]),
       ],

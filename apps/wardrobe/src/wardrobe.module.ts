@@ -14,7 +14,7 @@ import * as Joi from 'joi';
         RABBIT_MQ_URI: Joi.string(),
         RABBIT_MQ_WARDROBE_QUEUE: Joi.string(),
       }),
-      envFilePath: './apps/auth/.env',
+      envFilePath: './apps/wardrobe/.env',
     }),
   ],
   controllers: [WardrobeController],
