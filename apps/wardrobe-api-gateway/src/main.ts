@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
-import { WardrobeApiGatewayModule } from './wardrobe-api-gateway.module';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
+
+import { WardrobeApiGatewayModule } from './wardrobe-api-gateway.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(WardrobeApiGatewayModule);

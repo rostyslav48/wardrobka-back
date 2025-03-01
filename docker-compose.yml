@@ -1,4 +1,11 @@
 services:
+  postgresDb:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5432:5432"
+
   rabbitmq:
     image: rabbitmq
     ports:

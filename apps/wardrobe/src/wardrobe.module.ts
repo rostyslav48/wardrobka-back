@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import * as Joi from 'joi';
+
+import { RmqModule } from '@app/common';
+import { DatabaseModule } from '@app/common';
+
 import { WardrobeController } from './wardrobe.controller';
 import { WardrobeService } from './wardrobe.service';
-import { ConfigModule } from '@nestjs/config';
-import { RmqModule } from '@app/common';
-import * as Joi from 'joi';
 
 @Module({
   imports: [
     RmqModule,
+    DatabaseModule,
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: Joi.object({
