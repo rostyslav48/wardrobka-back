@@ -17,7 +17,12 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/wardrobe-assistant-back/test/jest-e2e.json"
+    "test:e2e": "jest --config ./apps/wardrobe-assistant-back/test/jest-e2e.json",
+    "typeorm": "ts-node ./node_modules/typeorm/cli",
+    "typeorm:create-migration": "npm run typeorm migration:create ./libs/common/src/database/migrations/$npm_config_name",
+    "typeorm:generate-migration": "npm run typeorm migration:generate ./libs/common/src/database/migrations/$npm_config_name -- -d ./libs/common/src/database/typeOrm.config.ts",
+    "typeorm:migrate": "npm run typeorm migration:run -- -d ./libs/common/src/database/typeOrm.config.ts",
+    "typeorm:rollback": "npm run typeorm migration:revert -- -d ./libs/common/src/database/typeOrm.config.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
@@ -31,6 +36,7 @@
     "amqplib": "^0.10.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "dotenv": "^16.5.0",
     "joi": "^17.13.3",
     "pg": "^8.13.3",
     "reflect-metadata": "^0.2.0",
