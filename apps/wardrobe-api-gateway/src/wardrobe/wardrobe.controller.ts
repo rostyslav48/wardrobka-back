@@ -10,15 +10,15 @@ import {
 
 import { WardrobeService } from './wardrobe.service';
 
-import { CreateWardrobeDto } from './dto/create-wardrobe.dto';
-import { UpdateWardrobeDto } from './dto/update-wardrobe.dto';
+import { CreateWardrobeItemDto } from '@app/wardrobe/dto/create-wardrobe-item.dto';
+import { UpdateWardrobeItemDto } from '@app/wardrobe/dto/update-wardrobe-item.dto';
 
 @Controller('wardrobe')
 export class WardrobeController {
   constructor(private readonly wardrobeService: WardrobeService) {}
 
   @Post()
-  create(@Body() createWardrobeDto: CreateWardrobeDto) {
+  create(@Body() createWardrobeDto: CreateWardrobeItemDto) {
     return this.wardrobeService.create(createWardrobeDto);
   }
 
@@ -35,13 +35,13 @@ export class WardrobeController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body() updateWardrobeDto: UpdateWardrobeDto,
+    @Body() updateWardrobeDto: UpdateWardrobeItemDto,
   ) {
     return this.wardrobeService.update(+id, updateWardrobeDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.wardrobeService.remove(+id);
+  delete(@Param('id') id: string) {
+    return this.wardrobeService.delete(+id);
   }
 }

@@ -1,4 +1,4 @@
-FROM node:alpine As development
+FROM node:alpine as development
 
 WORKDIR /usr/src/app
 
@@ -25,4 +25,4 @@ COPY . .
 
 COPY --from=development /usr/src/app/dist ./dist
 
-CMD ["node", "dist/apps/orders/main"]
+CMD ["node", "dist/apps/wardrobe-api-gateway/main"]

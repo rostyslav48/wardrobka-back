@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
 
 import { WardrobeModule } from './wardrobe/wardrobe.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { WardrobeModule } from './wardrobe/wardrobe.module';
     }),
 
     WardrobeModule,
+    AuthModule,
   ],
   controllers: [],
   providers: [],

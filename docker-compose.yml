@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: ./apps/wardrobe-api-gateway/DockerFile
       target: development
-    command:  npm run start:dev wardrobe-api-gateway
+    command: npm run start:dev wardrobe-api-gateway
     env_file:
       - ./apps/wardrobe-api-gateway/.env
     depends_on:
@@ -32,9 +32,24 @@ services:
       context: .
       dockerfile: ./apps/wardrobe/DockerFile
       target: development
-    command:  npm run start:dev wardrobe
+    command: npm run start:dev wardrobe
     env_file:
       - ./apps/wardrobe/.env
+    depends_on:
+      - rabbitmq
+      - wardrobe-api-gateway
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+
+  auth:
+    build:
+      context: .
+      dockerfile: ./apps/auth/DockerFile
+      target: development
+    command: npm run start:dev auth
+    env_file:
+      - ./apps/auth/.env
     depends_on:
       - rabbitmq
       - wardrobe-api-gateway
