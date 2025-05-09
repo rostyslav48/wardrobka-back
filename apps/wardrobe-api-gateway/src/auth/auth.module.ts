@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { RmqModule } from '@app/common';
-import { AUTH_SERVICE } from '../constants/services';
+
+import { AuthController } from './auth.controller';
+
+import { AuthService } from './auth.service';
+
+import { AUTH_SERVICE } from '../constants';
 
 @Module({
   imports: [
@@ -8,5 +13,7 @@ import { AUTH_SERVICE } from '../constants/services';
       name: AUTH_SERVICE,
     }),
   ],
+  controllers: [AuthController],
+  providers: [AuthService],
 })
 export class AuthModule {}
