@@ -26,6 +26,9 @@
       ],
       "@app/wardrobe/*": [
         "apps/wardrobe/src/*"
+      ],
+      "@app/auth/*": [
+        "apps/auth/src/*"
       ]
     }
   }

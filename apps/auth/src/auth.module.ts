@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { AuthController } from './auth/auth.controller';
 
 import { AuthService } from './auth/auth.service';
+import { BcryptService } from './auth/services/bcrypt.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { AuthService } from './auth/auth.service';
     ConfiguredJwtModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, BcryptService],
+  exports: [AuthService],
 })
 export class AuthModule {}
