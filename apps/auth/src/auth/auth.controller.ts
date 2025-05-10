@@ -11,6 +11,7 @@ import { MicroserviceExceptionFilter, RmqService } from '@app/common';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 
+import { RequestType } from '@app/common/types';
 import { AuthUserAccount } from './types';
 
 import { CreateUserAccountRequest, LoginRequest } from '../dto';
@@ -29,9 +30,9 @@ export class AuthController {
   @MessagePattern(AUTH_REQUESTS.login)
   async login(
     @Ctx() context: RmqContext,
-    @Body() request: LoginRequest,
+    @Body() { data }: RequestType<LoginRequest>,
   ): Promise<AuthUserAccount> {
-    const user = await this.authService.validateUser(request);
+    const user = await this.authService.validateUser(data);
 
     if (!user) {
       throw new UnauthorizedException();
@@ -46,13 +47,13 @@ export class AuthController {
   @MessagePattern(AUTH_REQUESTS.signup)
   async signup(
     @Ctx() context: RmqContext,
-    @Body() request: CreateUserAccountRequest,
+    @Body() { data }: RequestType<CreateUserAccountRequest>,
   ) {
-    if (await this.usersService.checkEmail(request.email)) {
+    if (await this.usersService.checkEmail(data.email)) {
       throw new ConflictException('User with this email already exists');
     }
 
-    const authUser = await this.authService.signup(request);
+    const authUser = await this.authService.signup(data);
     this.rmqService.ack(context);
 
     return authUser;

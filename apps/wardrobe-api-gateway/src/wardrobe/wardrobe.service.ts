@@ -1,16 +1,19 @@
 import { firstValueFrom } from 'rxjs';
 import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+
+import { ClientProxyService } from '../services/client-proxy.service';
 
 import { CreateWardrobeItemDto } from '@app/wardrobe/dto/create-wardrobe-item.dto';
 import { UpdateWardrobeItemDto } from '@app/wardrobe/dto/update-wardrobe-item.dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
-import { WARDROBE_SERVICE } from '../constants/services';
+import { CLIENT_PROXY_SERVICE } from '../constants';
 
 @Injectable()
 export class WardrobeService {
-  constructor(@Inject(WARDROBE_SERVICE) private wardrobeClient: ClientProxy) {}
+  constructor(
+    @Inject(CLIENT_PROXY_SERVICE) private wardrobeClient: ClientProxyService,
+  ) {}
 
   findAll() {
     return firstValueFrom(

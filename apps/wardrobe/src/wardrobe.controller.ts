@@ -4,6 +4,8 @@ import { Ctx, MessagePattern, RmqContext } from '@nestjs/microservices';
 import { MicroserviceExceptionFilter, RmqService } from '@app/common';
 import { WardrobeService } from './wardrobe.service';
 
+import { RequestType } from '@app/common/types';
+
 import { CreateWardrobeItemDto } from './dto/create-wardrobe-item.dto';
 import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
 
@@ -18,15 +20,21 @@ export class WardrobeController {
   ) {}
 
   @MessagePattern(WARDROBE_REQUESTS.findOne)
-  findOne(@Ctx() context: RmqContext, @Body() id: number) {
-    const item = this.wardrobeService.findOne(id);
+  findOne(
+    @Ctx() context: RmqContext,
+    @Body() { data, user }: RequestType<number>,
+  ) {
+    const item = this.wardrobeService.findOne(data);
     this.rmqService.ack(context);
 
     return item;
   }
 
   @MessagePattern(WARDROBE_REQUESTS.findMany)
-  async findMany(@Ctx() context: RmqContext) {
+  async findMany(
+    @Ctx() context: RmqContext,
+    @Body() { user }: RequestType<null>,
+  ) {
     const items = await this.wardrobeService.findAll();
     this.rmqService.ack(context);
 
@@ -36,9 +44,9 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.create)
   async create(
     @Ctx() context: RmqContext,
-    @Body() request: CreateWardrobeItemDto,
+    @Body() { data }: RequestType<CreateWardrobeItemDto>,
   ) {
-    const item = await this.wardrobeService.create(request);
+    const item = await this.wardrobeService.create(data);
     this.rmqService.ack(context);
 
     return item;
@@ -47,20 +55,20 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.update)
   async update(
     @Ctx() context: RmqContext,
-    @Body() request: { id: number; dto: UpdateWardrobeItemDto },
+    @Body() { data }: RequestType<{ id: number; dto: UpdateWardrobeItemDto }>,
   ) {
-    const updatedItem = await this.wardrobeService.update(
-      request.id,
-      request.dto,
-    );
+    const updatedItem = await this.wardrobeService.update(data.id, data.dto);
     this.rmqService.ack(context);
 
     return updatedItem;
   }
 
   @MessagePattern(WARDROBE_REQUESTS.delete)
-  async delete(@Body() id: number, @Ctx() context: RmqContext) {
-    const deletedItem = await this.wardrobeService.delete(id);
+  async delete(
+    @Ctx() context: RmqContext,
+    @Body() { data }: RequestType<number>,
+  ) {
+    const deletedItem = await this.wardrobeService.delete(data);
     this.rmqService.ack(context);
 
     return deletedItem;

@@ -37,7 +37,7 @@ export class AuthService {
   public async signIn(user: UserAccountPreview): Promise<AuthUserAccount> {
     const tokenPayload = {
       id: user.id,
-      username: user.name,
+      name: user.name,
       email: user.email,
     };
 
