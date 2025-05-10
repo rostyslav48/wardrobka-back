@@ -1,7 +1,7 @@
-import { Body, Controller } from '@nestjs/common';
+import { Body, Controller, UseFilters } from '@nestjs/common';
 import { Ctx, MessagePattern, RmqContext } from '@nestjs/microservices';
 
-import { RmqService } from '@app/common';
+import { MicroserviceExceptionFilter, RmqService } from '@app/common';
 import { AuthService } from './auth.service';
 
 import { AuthUserAccount } from './types';
@@ -10,6 +10,7 @@ import { LoginRequest } from '../dto';
 
 import { AUTH_REQUESTS } from '../constants';
 
+@UseFilters(MicroserviceExceptionFilter)
 @Controller()
 export class AuthController {
   constructor(

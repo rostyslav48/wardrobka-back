@@ -1,7 +1,7 @@
-import { Body, Controller } from '@nestjs/common';
+import { Body, Controller, UseFilters } from '@nestjs/common';
 import { Ctx, MessagePattern, RmqContext } from '@nestjs/microservices';
 
-import { RmqService } from '@app/common';
+import { MicroserviceExceptionFilter, RmqService } from '@app/common';
 import { WardrobeService } from './wardrobe.service';
 
 import { CreateWardrobeItemDto } from './dto/create-wardrobe-item.dto';
@@ -9,6 +9,7 @@ import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
 
+@UseFilters(MicroserviceExceptionFilter)
 @Controller()
 export class WardrobeController {
   constructor(
