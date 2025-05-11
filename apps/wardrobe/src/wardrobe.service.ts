@@ -15,27 +15,26 @@ export class WardrobeService {
     private wardrobeItemRepository: Repository<WardrobeItemEntity>,
   ) {}
 
-  findOne(id: number) {
-    return this.wardrobeItemRepository.findOneBy({ id });
+  findOne(id: number, accountId: number) {
+    return this.wardrobeItemRepository.findOneByOrFail({ id, accountId });
   }
 
-  findAll() {
-    return this.wardrobeItemRepository.find();
+  findAll(accountId: number) {
+    return this.wardrobeItemRepository.find({ where: { accountId } });
   }
 
-  async create(dto: CreateWardrobeItemDto) {
+  async create(dto: CreateWardrobeItemDto, accountId: number) {
     const item = this.wardrobeItemRepository.create(dto);
-    // TODO fix hardcoded accountId
-    item.accountId = 1;
+    item.accountId = accountId;
 
     return await this.entityManager.save(item);
   }
 
-  update(id: number, dto: UpdateWardrobeItemDto) {
-    return this.wardrobeItemRepository.update(id, dto);
+  update(id: number, dto: UpdateWardrobeItemDto, accountId: number) {
+    return this.wardrobeItemRepository.update({ id, accountId }, dto);
   }
 
-  delete(id: number) {
-    return this.wardrobeItemRepository.delete(id);
+  delete(id: number, accountId: number) {
+    return this.wardrobeItemRepository.delete({ id, accountId });
   }
 }

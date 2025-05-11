@@ -24,7 +24,7 @@ export class WardrobeController {
     @Ctx() context: RmqContext,
     @Body() { data, user }: RequestType<number>,
   ) {
-    const item = this.wardrobeService.findOne(data);
+    const item = this.wardrobeService.findOne(data, user.id);
     this.rmqService.ack(context);
 
     return item;
@@ -35,7 +35,7 @@ export class WardrobeController {
     @Ctx() context: RmqContext,
     @Body() { user }: RequestType<null>,
   ) {
-    const items = await this.wardrobeService.findAll();
+    const items = await this.wardrobeService.findAll(user.id);
     this.rmqService.ack(context);
 
     return items;
@@ -44,9 +44,9 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.create)
   async create(
     @Ctx() context: RmqContext,
-    @Body() { data }: RequestType<CreateWardrobeItemDto>,
+    @Body() { data, user }: RequestType<CreateWardrobeItemDto>,
   ) {
-    const item = await this.wardrobeService.create(data);
+    const item = await this.wardrobeService.create(data, user.id);
     this.rmqService.ack(context);
 
     return item;
@@ -55,9 +55,14 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.update)
   async update(
     @Ctx() context: RmqContext,
-    @Body() { data }: RequestType<{ id: number; dto: UpdateWardrobeItemDto }>,
+    @Body()
+    { data, user }: RequestType<{ id: number; dto: UpdateWardrobeItemDto }>,
   ) {
-    const updatedItem = await this.wardrobeService.update(data.id, data.dto);
+    const updatedItem = await this.wardrobeService.update(
+      data.id,
+      data.dto,
+      user.id,
+    );
     this.rmqService.ack(context);
 
     return updatedItem;
@@ -66,9 +71,9 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.delete)
   async delete(
     @Ctx() context: RmqContext,
-    @Body() { data }: RequestType<number>,
+    @Body() { data, user }: RequestType<number>,
   ) {
-    const deletedItem = await this.wardrobeService.delete(data);
+    const deletedItem = await this.wardrobeService.delete(data, user.id);
     this.rmqService.ack(context);
 
     return deletedItem;
