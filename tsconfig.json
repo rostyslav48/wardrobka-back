@@ -24,6 +24,9 @@
       "@app/common/*": [
         "libs/common/src/*"
       ],
+      "@app/wardrobe-api-gateway/*": [
+        "apps/wardrobe-api-gateway/src/*"
+      ],
       "@app/wardrobe/*": [
         "apps/wardrobe/src/*"
       ],
