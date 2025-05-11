@@ -4,8 +4,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe';
 
-import { CreateWardrobeItemDto } from './dto/create-wardrobe-item.dto';
-import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
+import {
+  FindManyWardrobeItemsDto,
+  UpdateWardrobeItemDto,
+  CreateWardrobeItemDto,
+} from '@app/wardrobe/dto';
 
 @Injectable()
 export class WardrobeService {
@@ -19,8 +22,10 @@ export class WardrobeService {
     return this.wardrobeItemRepository.findOneByOrFail({ id, accountId });
   }
 
-  findAll(accountId: number) {
-    return this.wardrobeItemRepository.find({ where: { accountId } });
+  findAll(accountId: number, filters: FindManyWardrobeItemsDto) {
+    return this.wardrobeItemRepository.find({
+      where: { accountId, ...filters },
+    });
   }
 
   async create(dto: CreateWardrobeItemDto, accountId: number) {

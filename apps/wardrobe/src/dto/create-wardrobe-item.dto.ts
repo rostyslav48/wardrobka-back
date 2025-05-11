@@ -12,7 +12,7 @@ import { FitType, ItemStatus, ItemType, Season, Size } from '../enums';
 
 export class CreateWardrobeItemDto {
   @IsEnum(ItemType)
-  type: string;
+  type: ItemType;
 
   @IsHexColor()
   @MaxLength(50)
@@ -29,7 +29,7 @@ export class CreateWardrobeItemDto {
 
   @IsEnum(ItemStatus)
   @IsOptional()
-  status?: string = 'active';
+  status?: ItemStatus = ItemStatus.Active;
 
   @IsOptional()
   @IsBoolean()
@@ -37,7 +37,7 @@ export class CreateWardrobeItemDto {
 
   @IsEnum(FitType)
   @IsOptional()
-  fit_type?: string;
+  fit_type?: FitType;
 
   @IsOptional()
   @IsString()
@@ -55,7 +55,7 @@ export class CreateWardrobeItemDto {
 
   @IsEnum(Size)
   @IsOptional()
-  size?: string;
+  size?: Size;
 
   @IsOptional()
   @IsString()

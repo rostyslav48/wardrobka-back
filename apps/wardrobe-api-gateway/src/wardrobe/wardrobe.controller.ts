@@ -6,12 +6,16 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
 } from '@nestjs/common';
 
 import { WardrobeService } from './wardrobe.service';
 
-import { CreateWardrobeItemDto } from '@app/wardrobe/dto/create-wardrobe-item.dto';
-import { UpdateWardrobeItemDto } from '@app/wardrobe/dto/update-wardrobe-item.dto';
+import {
+  FindManyWardrobeItemsDto,
+  CreateWardrobeItemDto,
+  UpdateWardrobeItemDto,
+} from '@app/wardrobe/dto';
 
 @Controller('wardrobe')
 export class WardrobeController {
@@ -23,8 +27,8 @@ export class WardrobeController {
   }
 
   @Get()
-  findAll() {
-    return this.wardrobeService.findAll();
+  findAll(@Query() filters: FindManyWardrobeItemsDto) {
+    return this.wardrobeService.findAll(filters);
   }
 
   @Get(':id')

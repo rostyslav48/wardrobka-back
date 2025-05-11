@@ -3,8 +3,11 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ClientProxyService } from '../services/client-proxy.service';
 
-import { CreateWardrobeItemDto } from '@app/wardrobe/dto/create-wardrobe-item.dto';
-import { UpdateWardrobeItemDto } from '@app/wardrobe/dto/update-wardrobe-item.dto';
+import {
+  FindManyWardrobeItemsDto,
+  UpdateWardrobeItemDto,
+  CreateWardrobeItemDto,
+} from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
 import { CLIENT_PROXY_SERVICE } from '../constants';
@@ -15,9 +18,9 @@ export class WardrobeService {
     @Inject(CLIENT_PROXY_SERVICE) private wardrobeClient: ClientProxyService,
   ) {}
 
-  findAll() {
+  findAll(filters: FindManyWardrobeItemsDto) {
     return firstValueFrom(
-      this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {}),
+      this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, filters),
     );
   }
 

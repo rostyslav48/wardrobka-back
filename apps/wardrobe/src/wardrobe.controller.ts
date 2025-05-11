@@ -6,8 +6,11 @@ import { WardrobeService } from './wardrobe.service';
 
 import { RequestType } from '@app/common/types';
 
-import { CreateWardrobeItemDto } from './dto/create-wardrobe-item.dto';
-import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
+import {
+  CreateWardrobeItemDto,
+  UpdateWardrobeItemDto,
+  FindManyWardrobeItemsDto,
+} from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
 
@@ -33,9 +36,9 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.findMany)
   async findMany(
     @Ctx() context: RmqContext,
-    @Body() { user }: RequestType<null>,
+    @Body() { user, data }: RequestType<FindManyWardrobeItemsDto>,
   ) {
-    const items = await this.wardrobeService.findAll(user.id);
+    const items = await this.wardrobeService.findAll(user.id, data);
     this.rmqService.ack(context);
 
     return items;
