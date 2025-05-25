@@ -4,9 +4,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxyService } from '../services/client-proxy.service';
 
 import {
-  FindManyWardrobeItemsDto,
-  UpdateWardrobeItemDto,
-  CreateWardrobeItemDto,
+  FindManyWardrobeItemsRequestDto,
+  UpdateWardrobeItemRequestDto,
+  CreateWardrobeItemRequestDto,
 } from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
@@ -18,27 +18,55 @@ export class WardrobeService {
     @Inject(CLIENT_PROXY_SERVICE) private wardrobeClient: ClientProxyService,
   ) {}
 
-  findAll(filters: FindManyWardrobeItemsDto) {
+  public findAll(filters: FindManyWardrobeItemsRequestDto) {
     return firstValueFrom(
       this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, filters),
     );
   }
 
-  findOne(id: number) {
+  public findOne(id: number) {
     return this.wardrobeClient.send(WARDROBE_REQUESTS.findOne, id);
   }
 
-  create(dto: CreateWardrobeItemDto) {
+  public create(
+    dto: CreateWardrobeItemRequestDto,
+    image?: Express.Multer.File,
+  ) {
+    const preparedImage = image
+      ? {
+          originalname: image.originalname,
+          fileBase64: image.buffer.toString('base64'),
+        }
+      : null;
+
     return firstValueFrom(
-      this.wardrobeClient.send(WARDROBE_REQUESTS.create, dto),
+      this.wardrobeClient.send(WARDROBE_REQUESTS.create, {
+        dto,
+        image: preparedImage,
+      }),
     );
   }
 
-  update(id: number, dto: UpdateWardrobeItemDto) {
-    return this.wardrobeClient.send(WARDROBE_REQUESTS.update, { id, dto });
+  public update(
+    id: number,
+    dto: UpdateWardrobeItemRequestDto,
+    image?: Express.Multer.File,
+  ) {
+    const preparedImage = image
+      ? {
+          originalname: image.originalname,
+          fileBase64: image.buffer.toString('base64'),
+        }
+      : null;
+
+    return this.wardrobeClient.send(WARDROBE_REQUESTS.update, {
+      id,
+      dto,
+      image: preparedImage,
+    });
   }
 
-  delete(id: number) {
+  public delete(id: number) {
     return this.wardrobeClient.send(WARDROBE_REQUESTS.delete, id);
   }
 }

@@ -7,27 +7,43 @@ import {
   Param,
   Delete,
   Query,
+  UseInterceptors,
+  UploadedFile,
+  MaxFileSizeValidator,
+  ParseFilePipe,
+  FileTypeValidator,
+  UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { WardrobeService } from './wardrobe.service';
 
 import {
-  FindManyWardrobeItemsDto,
-  CreateWardrobeItemDto,
-  UpdateWardrobeItemDto,
+  FindManyWardrobeItemsRequestDto,
+  CreateWardrobeItemRequestDto,
+  UpdateWardrobeItemRequestDto,
 } from '@app/wardrobe/dto';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { ImageUploadValidationPipe } from '@app/wardrobe-api-gateway/wardrobe/validators';
 
 @Controller('wardrobe')
 export class WardrobeController {
   constructor(private readonly wardrobeService: WardrobeService) {}
 
   @Post()
-  create(@Body() createWardrobeDto: CreateWardrobeItemDto) {
-    return this.wardrobeService.create(createWardrobeDto);
+  @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(ThrottlerGuard)
+  create(
+    @Body() createWardrobeDto: CreateWardrobeItemRequestDto,
+    @UploadedFile(ImageUploadValidationPipe)
+    image?: Express.Multer.File,
+  ) {
+    return this.wardrobeService.create(createWardrobeDto, image);
   }
 
   @Get()
-  findAll(@Query() filters: FindManyWardrobeItemsDto) {
+  findAll(@Query() filters: FindManyWardrobeItemsRequestDto) {
     return this.wardrobeService.findAll(filters);
   }
 
@@ -36,12 +52,17 @@ export class WardrobeController {
     return this.wardrobeService.findOne(+id);
   }
 
+  // @UseGuards(ThrottlerGuard)
   @Patch(':id')
+  @UseInterceptors(FileInterceptor('image'))
   update(
     @Param('id') id: string,
-    @Body() updateWardrobeDto: UpdateWardrobeItemDto,
+    @Body()
+    updateWardrobeDto: UpdateWardrobeItemRequestDto,
+    @UploadedFile(ImageUploadValidationPipe)
+    image?: Express.Multer.File,
   ) {
-    return this.wardrobeService.update(+id, updateWardrobeDto);
+    return this.wardrobeService.update(+id, updateWardrobeDto, image);
   }
 
   @Delete(':id')

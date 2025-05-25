@@ -16,7 +16,7 @@ import {
 } from '@app/wardrobe/enums';
 import { Transform } from 'class-transformer';
 
-export class FindManyWardrobeItemsDto {
+export class FindManyWardrobeItemsRequestDto {
   @IsEnum(ItemType)
   @IsOptional()
   type?: ItemType;

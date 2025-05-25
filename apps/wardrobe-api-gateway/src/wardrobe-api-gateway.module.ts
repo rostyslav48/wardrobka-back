@@ -16,6 +16,7 @@ import { AuthModule } from './auth/auth.module';
       envFilePath: [
         './apps/wardrobe-api-gateway/.env',
         './libs/common/src/jwt/.env',
+        './apps/media-storage/.env',
       ],
     }),
     ConfiguredJwtModule,

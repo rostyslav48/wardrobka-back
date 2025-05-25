@@ -25,7 +25,7 @@ export class WardrobeItemEntity {
   type: string;
 
   @Column({ length: 50 })
-  color: string; // HEX format for color sorting
+  color: string;
 
   @Column({ length: 50 })
   name: string;
@@ -34,7 +34,7 @@ export class WardrobeItemEntity {
   season: string;
 
   @Column({ type: 'text', nullable: true })
-  img_url?: string; // Store in cloud, CDN, or local storage
+  img_path?: string;
 
   @Column({
     length: 50,

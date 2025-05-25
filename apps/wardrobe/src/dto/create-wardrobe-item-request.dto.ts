@@ -7,10 +7,11 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 import { FitType, ItemStatus, ItemType, Season, Size } from '../enums';
 
-export class CreateWardrobeItemDto {
+export class CreateWardrobeItemRequestDto {
   @IsEnum(ItemType)
   type: ItemType;
 
@@ -33,6 +34,7 @@ export class CreateWardrobeItemDto {
 
   @IsOptional()
   @IsBoolean()
+  @Transform(({ value }) => value === 'true')
   favourite?: boolean = false;
 
   @IsEnum(FitType)

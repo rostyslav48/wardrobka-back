@@ -15,6 +15,14 @@ async function bootstrap() {
   const reflector = app.get(Reflector);
   app.useGlobalGuards(new AuthGuard(reflector, jwtService));
 
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
   const configService = app.get(ConfigService);
   await app.listen(configService.get('PORT'));
 }

@@ -1,6 +1,7 @@
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Module } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 import { RmqModule } from '@app/common';
 
@@ -17,6 +18,14 @@ import { CLIENT_PROXY_SERVICE, WARDROBE_SERVICE } from '../constants';
   imports: [
     RmqModule.register({
       name: WARDROBE_SERVICE,
+    }),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: 5000,
+          limit: 1,
+        },
+      ],
     }),
   ],
   controllers: [WardrobeController],

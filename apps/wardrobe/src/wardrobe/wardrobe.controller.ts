@@ -7,12 +7,15 @@ import { WardrobeService } from './wardrobe.service';
 import { RequestType } from '@app/common/types';
 
 import {
-  CreateWardrobeItemDto,
-  UpdateWardrobeItemDto,
-  FindManyWardrobeItemsDto,
+  CreateWardrobeItemRequestDto,
+  UpdateWardrobeItemRequestDto,
+  FindManyWardrobeItemsRequestDto,
+  WardrobeItemDto,
+  WardrobeItemPreviewDto,
 } from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
+import { FileTransfer } from '@app/media-storage/models';
 
 @UseFilters(MicroserviceExceptionFilter)
 @Controller()
@@ -26,7 +29,7 @@ export class WardrobeController {
   findOne(
     @Ctx() context: RmqContext,
     @Body() { data, user }: RequestType<number>,
-  ) {
+  ): Promise<WardrobeItemDto> {
     const item = this.wardrobeService.findOne(data, user.id);
     this.rmqService.ack(context);
 
@@ -36,8 +39,8 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.findMany)
   async findMany(
     @Ctx() context: RmqContext,
-    @Body() { user, data }: RequestType<FindManyWardrobeItemsDto>,
-  ) {
+    @Body() { user, data }: RequestType<FindManyWardrobeItemsRequestDto>,
+  ): Promise<WardrobeItemPreviewDto[]> {
     const items = await this.wardrobeService.findAll(user.id, data);
     this.rmqService.ack(context);
 
@@ -47,9 +50,17 @@ export class WardrobeController {
   @MessagePattern(WARDROBE_REQUESTS.create)
   async create(
     @Ctx() context: RmqContext,
-    @Body() { data, user }: RequestType<CreateWardrobeItemDto>,
-  ) {
-    const item = await this.wardrobeService.create(data, user.id);
+    @Body()
+    {
+      data,
+      user,
+    }: RequestType<{ dto: CreateWardrobeItemRequestDto; image?: FileTransfer }>,
+  ): Promise<WardrobeItemDto> {
+    const item = await this.wardrobeService.create(
+      data.dto,
+      user.id,
+      data.image,
+    );
     this.rmqService.ack(context);
 
     return item;
@@ -59,12 +70,20 @@ export class WardrobeController {
   async update(
     @Ctx() context: RmqContext,
     @Body()
-    { data, user }: RequestType<{ id: number; dto: UpdateWardrobeItemDto }>,
+    {
+      data,
+      user,
+    }: RequestType<{
+      id: number;
+      dto: UpdateWardrobeItemRequestDto;
+      image?: FileTransfer;
+    }>,
   ) {
     const updatedItem = await this.wardrobeService.update(
       data.id,
       data.dto,
       user.id,
+      data.image,
     );
     this.rmqService.ack(context);
 

@@ -56,3 +56,18 @@ services:
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
+
+  media-storage:
+    build:
+      context: .
+      dockerfile: ./apps/media-storage/DockerFile
+      target: development
+    command: npm run start:dev media-storage
+    env_file:
+      - ./apps/media-storage/.env
+    depends_on:
+      - rabbitmq
+      - wardrobe-api-gateway
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules

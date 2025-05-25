@@ -32,6 +32,9 @@
       ],
       "@app/auth/*": [
         "apps/auth/src/*"
+      ],
+      "@app/media-storage/*": [
+        "apps/media-storage/src/*"
       ]
     }
   }

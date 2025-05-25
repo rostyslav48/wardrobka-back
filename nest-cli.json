@@ -36,6 +36,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
+    },
+    "media-storage": {
+      "type": "application",
+      "root": "apps/media-storage",
+      "entryFile": "main",
+      "sourceRoot": "apps/media-storage/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/media-storage/tsconfig.app.json"
+      }
     }
   }
 }
