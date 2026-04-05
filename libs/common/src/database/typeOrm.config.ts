@@ -4,10 +4,25 @@ import { ConfigService } from '@nestjs/config';
 
 import { WardrobeItemEntity } from './entities/wardrobe';
 import { UserAccountEntity } from './entities/auth';
+import {
+  AssistantMessageEntity,
+  AssistantOutfitSuggestionEntity,
+  AssistantSessionEntity,
+  AssistantWebhookJobEntity,
+} from './entities/assistant';
 
 config({ path: './libs/common/src/database/.env' });
 
 const configService = new ConfigService();
+
+export const databaseEntities = [
+  UserAccountEntity,
+  WardrobeItemEntity,
+  AssistantSessionEntity,
+  AssistantMessageEntity,
+  AssistantOutfitSuggestionEntity,
+  AssistantWebhookJobEntity,
+];
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -18,5 +33,5 @@ export const AppDataSource = new DataSource({
   password: configService.getOrThrow('POSTGRES_PASSWORD'),
   synchronize: configService.getOrThrow('POSTGRES_SYNCHRONIZE'),
   migrations: ['./libs/common/src/database/migrations/*.ts'],
-  entities: [UserAccountEntity, WardrobeItemEntity],
+  entities: databaseEntities,
 });

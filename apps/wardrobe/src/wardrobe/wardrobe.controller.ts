@@ -100,4 +100,15 @@ export class WardrobeController {
 
     return deletedItem;
   }
+
+  @MessagePattern(WARDROBE_REQUESTS.findManyByIds)
+  async findManyByIds(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<number[]>,
+  ): Promise<WardrobeItemDto[]> {
+    const items = await this.wardrobeService.findManyByIds(data, user.id);
+    this.rmqService.ack(context);
+
+    return items;
+  }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 
 import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe';
@@ -9,11 +9,11 @@ import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe';
 import { MediaStorageService } from '../media-storage/media-storage.service';
 
 import {
+  CreateWardrobeItemRequestDto,
   FindManyWardrobeItemsRequestDto,
   UpdateWardrobeItemRequestDto,
-  CreateWardrobeItemRequestDto,
-  WardrobeItemPreviewDto,
   WardrobeItemDto,
+  WardrobeItemPreviewDto,
 } from '@app/wardrobe/dto';
 
 import { FileTransfer } from '@app/media-storage/models';
@@ -87,6 +87,31 @@ export class WardrobeService {
     const [itemWithUrl] = await this.getItemsWithImageUrls([savedEntity]);
 
     return plainToInstance(WardrobeItemDto, itemWithUrl, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  async findManyByIds(
+    ids: number[],
+    accountId: number,
+  ): Promise<WardrobeItemDto[]> {
+    if (!ids?.length) {
+      return [];
+    }
+
+    const items = await this.wardrobeItemRepository.find({
+      where: {
+        id: In(ids),
+        accountId,
+      },
+    });
+
+    if (!items.length) {
+      return [];
+    }
+
+    const enriched = await this.getItemsWithImageUrls(items);
+    return plainToInstance(WardrobeItemDto, enriched, {
       excludeExtraneousValues: true,
     });
   }

@@ -71,3 +71,18 @@ services:
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
+
+  ai-assistant:
+    build:
+      context: .
+      dockerfile: ./apps/ai-assistant/DockerFile
+      target: development
+    command: npm run start:dev ai-assistant
+    env_file:
+      - ./apps/ai-assistant/.env
+    depends_on:
+      - rabbitmq
+      - wardrobe-api-gateway
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules

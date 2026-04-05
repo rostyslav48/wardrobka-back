@@ -5,6 +5,7 @@ import * as Joi from 'joi';
 import { ConfiguredJwtModule } from '@app/common/jwt/configured-jwt.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { AuthModule } from './auth/auth.module';
+import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AuthModule } from './auth/auth.module';
     ConfiguredJwtModule,
     WardrobeModule,
     AuthModule,
+    AiAssistantModule,
   ],
   controllers: [],
 })

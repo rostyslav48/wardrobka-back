@@ -4,4 +4,5 @@ export const WARDROBE_REQUESTS = {
   create: 'wardrobe/create',
   update: 'wardrobe/update',
   delete: 'wardrobe/delete',
+  findManyByIds: 'wardrobe/get_many_by_ids',
 };

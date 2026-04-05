@@ -1,6 +1,7 @@
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Module } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { RmqModule } from '@app/common';
 
 import { AuthController } from './auth.controller';
@@ -16,6 +17,9 @@ import { AUTH_SERVICE, CLIENT_PROXY_SERVICE } from '../constants';
   imports: [
     RmqModule.register({
       name: AUTH_SERVICE,
+    }),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60000, limit: 30 }],
     }),
   ],
   controllers: [AuthController],

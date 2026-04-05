@@ -45,6 +45,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/media-storage/tsconfig.app.json"
       }
+    },
+    "ai-assistant": {
+      "type": "application",
+      "root": "apps/ai-assistant",
+      "entryFile": "main",
+      "sourceRoot": "apps/ai-assistant/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/ai-assistant/tsconfig.app.json"
+      }
     }
   }
 }

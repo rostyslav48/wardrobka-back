@@ -6,6 +6,7 @@ import {
   Unique,
 } from 'typeorm';
 import { WardrobeItemEntity } from '../wardrobe/wardrobe-item.entity';
+import { AssistantSessionEntity } from '../assistant/assistant-session.entity';
 
 @Unique(['email'])
 @Entity({ name: 'user_account' })
@@ -16,6 +17,9 @@ export class UserAccountEntity {
   @OneToMany(() => WardrobeItemEntity, (wardrobeItem) => wardrobeItem.account)
   wardrobeItems: WardrobeItemEntity;
 
+  @OneToMany(() => AssistantSessionEntity, (session) => session.account)
+  assistantSessions: AssistantSessionEntity[];
+
   @Column({ length: 100 })
   name: string;
 
@@ -24,4 +28,7 @@ export class UserAccountEntity {
 
   @Column({ type: 'text' })
   password: string;
+
+  @Column({ type: 'text', nullable: true, name: 'protected_data' })
+  protectedData?: string;
 }
