@@ -15,6 +15,7 @@ import {
   AssistantSessionDto,
   ChatRequestDto,
   GenerateOutfitRequestDto,
+  RecentSuggestionDto,
 } from '@app/ai-assistant/dto';
 import { UserAccountPreview } from '@app/auth/users/types';
 import { AssistantProtectedData } from '../types/protected-data.type';
@@ -258,6 +259,27 @@ export class ConversationService {
     }
 
     return session;
+  }
+
+  async getRecentSuggestions(
+    accountId: number,
+    limit = 10,
+  ): Promise<RecentSuggestionDto[]> {
+    const suggestions = await this.outfitRepository
+      .createQueryBuilder('suggestion')
+      .leftJoinAndSelect('suggestion.session', 'session')
+      .where('session.accountId = :accountId', { accountId })
+      .orderBy('suggestion.createdAt', 'DESC')
+      .limit(Math.min(limit, 10))
+      .getMany();
+
+    return suggestions.map((s) =>
+      plainToInstance(
+        RecentSuggestionDto,
+        { ...s, sessionTopic: s.session?.topic ?? '' },
+        { excludeExtraneousValues: true },
+      ),
+    );
   }
 
   private deriveTopic(prompt: string) {

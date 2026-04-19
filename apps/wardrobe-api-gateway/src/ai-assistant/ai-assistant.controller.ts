@@ -1,10 +1,29 @@
-import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 
 import {
   ChatRequestDto,
   GenerateOutfitRequestDto,
   UpsertWebhookKeyDto,
 } from '@app/ai-assistant/dto';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class RecentSuggestionsQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  limit?: number;
+}
 
 import { AiAssistantService } from './ai-assistant.service';
 
@@ -35,5 +54,10 @@ export class AiAssistantController {
   @Put('webhook-key')
   upsertWebhookKey(@Body() dto: UpsertWebhookKeyDto) {
     return this.aiAssistantService.upsertWebhookKey(dto);
+  }
+
+  @Get('suggestions/recent')
+  getRecentSuggestions(@Query() query: RecentSuggestionsQuery) {
+    return this.aiAssistantService.getRecentSuggestions(query.limit);
   }
 }
