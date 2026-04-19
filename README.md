@@ -41,6 +41,18 @@ This builds each service (using their respective `DockerFile`) and boots up Post
 
 Services map local directories to `/usr/src/app` inside the container for hot-reloading (`npm run start:dev [service]`).
 
+## 💅 Code Style & Conventions
+**Formatting and Linting**
+The repository uses **ESLint** and **Prettier** to enforce formatting rules across the codebase:
+- Use **single quotes** (`'...'`) for strings, unless double quotes are necessary inside strings.
+- Leave **trailing commas** everywhere (`trailingComma: "all"` in Prettier).
+- Explicit `any`, missing interface name prefixes, and missing function return types form part of the relaxed TypeScript strictness in linting.
+- Run `npm run format` and `npm run lint` before committing to ensure adherence.
+
+**File Naming Conventions**
+- Use **kebab-case** for file and directory names (e.g., `ai-assistant`, `user-account.entity.ts`).
+- Include the **file type** as a dot-separated suffix before the `.ts` extension (e.g., `.module.ts`, `.controller.ts`, `.service.ts`, `.entity.ts`, `.dto.ts`, `.job.ts`).
+
 ## 🗄️ Database & Migrations
 The project uses TypeORM & PostgreSQL. The primary entities are defined in `libs/common/src/database/entities/`. 
 
@@ -59,4 +71,3 @@ npm run test
 # e2e tests
 npm run test:e2e
 ```
-
