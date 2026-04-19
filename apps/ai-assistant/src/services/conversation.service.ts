@@ -270,7 +270,7 @@ export class ConversationService {
       .leftJoinAndSelect('suggestion.session', 'session')
       .where('session.accountId = :accountId', { accountId })
       .orderBy('suggestion.createdAt', 'DESC')
-      .limit(Math.min(limit, 10))
+      .limit(limit)
       .getMany();
 
     return suggestions.map((s) =>

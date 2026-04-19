@@ -1,27 +1,15 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Put,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 
 import {
   ChatRequestDto,
   GenerateOutfitRequestDto,
   UpsertWebhookKeyDto,
 } from '@app/ai-assistant/dto';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsInt, IsOptional } from 'class-validator';
 
 class RecentSuggestionsQuery {
   @IsOptional()
-  @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(10)
   limit?: number;
 }
 
