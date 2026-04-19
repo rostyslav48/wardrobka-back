@@ -100,7 +100,12 @@
       "<rootDir>/apps/"
     ],
     "moduleNameMapper": {
-      "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1"
+      "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1",
+      "^@app/ai-assistant/(.*)$": "<rootDir>/libs/ai-assistant/src/$1",
+      "^@app/wardrobe-api-gateway/(.*)$": "<rootDir>/apps/wardrobe-api-gateway/src/$1",
+      "^@app/wardrobe/(.*)$": "<rootDir>/apps/wardrobe/src/$1",
+      "^@app/auth/(.*)$": "<rootDir>/apps/auth/src/$1",
+      "^@app/media-storage/(.*)$": "<rootDir>/apps/media-storage/src/$1"
     }
   }
 }

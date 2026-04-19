@@ -26,6 +26,9 @@ export class WardrobeItemPreviewDto {
   @Expose()
   favorite: boolean;
 
+  @Expose({ name: 'favourite' })
+  favourite: boolean;
+
   @Expose()
   size?: Size;
 }

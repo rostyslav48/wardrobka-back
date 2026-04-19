@@ -31,4 +31,7 @@ export class UserAccountEntity {
 
   @Column({ type: 'text', nullable: true, name: 'protected_data' })
   protectedData?: string;
+
+  @Column({ length: 100, nullable: true })
+  city?: string;
 }

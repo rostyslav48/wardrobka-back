@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import * as Joi from 'joi';
 
 import { DatabaseModule, RmqModule } from '@app/common';
+import { HttpService } from '@app/common/http';
 import { AssistantMessageEntity, AssistantOutfitSuggestionEntity, AssistantSessionEntity, AssistantWebhookJobEntity } from '@app/common/database/entities/assistant';
 import { UserAccountEntity } from '@app/common/database/entities/auth';
 import { MEDIA_STORAGE_SERVICE, WARDROBE_SERVICE } from '@app/wardrobe-api-gateway/constants';
@@ -13,6 +14,7 @@ import { AiAssistantController } from './controllers/ai-assistant.controller';
 import { ConversationService } from './services/conversation.service';
 import { GeminiClientService } from './services/gemini-client.service';
 import { ContextBuilderService } from './services/context-builder.service';
+import { WeatherService } from './services/weather.service';
 import { WebhookQueueService } from './services/webhook-queue.service';
 import { WebhookDispatcherJob } from './jobs/webhook-dispatcher.job';
 import { WebhookHttpService } from './webhook/webhook-http.service';
@@ -37,6 +39,7 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
         AI_ASSISTANT_WEBHOOK_AUTH_HEADER: Joi.string().required(),
         WEBHOOK_MAX_ATTEMPTS: Joi.number().default(5),
         WEBHOOK_RETRY_INTERVAL_MS: Joi.number().default(60000),
+        OPENWEATHERMAP_API_KEY: Joi.string().optional().allow(''),
       }),
     }),
     ScheduleModule.forRoot(),
@@ -56,9 +59,11 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
     ConversationService,
     GeminiClientService,
     ContextBuilderService,
+    WeatherService,
     WebhookQueueService,
     WebhookDispatcherJob,
     WebhookHttpService,
+    HttpService,
   ],
 })
 export class AiAssistantModule {}

@@ -4,3 +4,4 @@ export * from './database/dtabase.module';
 export * from './jwt/configured-jwt.module';
 export * from './exception-filter/microservice-exception-filter';
 export * from './security/protected-data.util';
+export * from './http';
