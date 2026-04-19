@@ -6,12 +6,16 @@ import {
   GoogleGenerativeAI,
 } from '@google/generative-ai';
 
-import { WardrobeItemDto } from '@app/wardrobe/dto';
+import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
+
+import { WeatherContext } from '../types/weather-context.type';
 
 interface ChatContext {
   prompt: string;
   wardrobeItems: WardrobeItemDto[];
   referenceImageUrls: string[];
+  activeWardrobeItems?: WardrobeItemPreviewDto[];
+  weather?: WeatherContext | null;
 }
 
 interface OutfitContext {
@@ -19,6 +23,8 @@ interface OutfitContext {
   styleHint?: string;
   season?: string;
   wardrobeItems: WardrobeItemDto[];
+  activeWardrobeItems?: WardrobeItemPreviewDto[];
+  weather?: WeatherContext | null;
 }
 
 @Injectable()
@@ -68,6 +74,8 @@ export class GeminiClientService {
     prompt,
     wardrobeItems,
     referenceImageUrls,
+    activeWardrobeItems,
+    weather,
   }: ChatContext) {
     const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
     const imageContext = referenceImageUrls.length
@@ -76,6 +84,8 @@ export class GeminiClientService {
 
     return [
       'You are an AI wardrobe assistant helping users make outfit decisions.',
+      this.serializeWeather(weather),
+      this.serializeActiveItems(activeWardrobeItems),
       wardrobeContext,
       imageContext,
       'User request:',
@@ -90,6 +100,8 @@ export class GeminiClientService {
     styleHint,
     season,
     wardrobeItems,
+    activeWardrobeItems,
+    weather,
   }: OutfitContext) {
     const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
 
@@ -98,11 +110,57 @@ export class GeminiClientService {
       `Occasion: ${occasion}`,
       season ? `Season: ${season}` : null,
       styleHint ? `Style hint: ${styleHint}` : null,
+      this.serializeWeather(weather),
+      this.serializeActiveItems(activeWardrobeItems),
       wardrobeContext,
       'Respond with a concise paragraph and highlight which pieces to combine.',
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  private serializeWeather(weather?: WeatherContext | null): string {
+    if (!weather) {
+      return '';
+    }
+
+    const lines = [
+      `Weather forecast for ${weather.city} — tomorrow:`,
+      `- ${weather.temperatureCelsius}°C, ${weather.condition}`,
+      `- Humidity: ${weather.humidity}%`,
+      `- Wind: ${weather.windSpeed} m/s`,
+    ];
+
+    if (weather.dailyForecast?.length) {
+      lines.push('Upcoming daily forecast:');
+      for (const day of weather.dailyForecast) {
+        lines.push(
+          `  • ${day.date}: ${day.temperatureCelsius}°C, ${day.condition}`,
+        );
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  private serializeActiveItems(
+    items?: WardrobeItemPreviewDto[],
+  ): string {
+    if (items === undefined) {
+      return '';
+    }
+
+    if (!items.length) {
+      return 'No items currently available (all in washing, missing, or repair).';
+    }
+
+    return [
+      'Currently available wardrobe items (active, in season):',
+      ...items.map(
+        (item) =>
+          `- ${item.name || item.type} (${item.color || 'color N/A'}, ${item.season || 'season N/A'})`,
+      ),
+    ].join('\n');
   }
 
   private serializeWardrobeItems(items: WardrobeItemDto[]) {

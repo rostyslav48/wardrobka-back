@@ -14,7 +14,12 @@ import { UsersService } from '../users/users.service';
 import { RequestType } from '@app/common/types';
 import { AuthUserAccount } from './types';
 
-import { CreateUserAccountRequest, LoginRequest } from '../dto';
+import {
+  CreateUserAccountRequest,
+  LoginRequest,
+  ProfileResponse,
+  UpdateProfileRequest,
+} from '../dto';
 
 import { AUTH_REQUESTS } from '../constants';
 
@@ -57,5 +62,35 @@ export class AuthController {
     this.rmqService.ack(context);
 
     return authUser;
+  }
+
+  @MessagePattern(AUTH_REQUESTS.getProfile)
+  async getProfile(
+    @Ctx() context: RmqContext,
+    @Body() { user }: RequestType<void>,
+  ): Promise<ProfileResponse> {
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    const profile = await this.usersService.getProfile(user.id);
+    this.rmqService.ack(context);
+
+    return profile;
+  }
+
+  @MessagePattern(AUTH_REQUESTS.updateProfile)
+  async updateProfile(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<UpdateProfileRequest>,
+  ): Promise<ProfileResponse> {
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    const profile = await this.usersService.updateProfile(user.id, data);
+    this.rmqService.ack(context);
+
+    return profile;
   }
 }

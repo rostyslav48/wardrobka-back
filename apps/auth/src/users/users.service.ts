@@ -4,7 +4,11 @@ import { EntityManager, Repository } from 'typeorm';
 
 import { UserAccountEntity } from '@app/common/database/entities/auth';
 
-import { CreateUserAccountRequest } from '../dto';
+import {
+  CreateUserAccountRequest,
+  ProfileResponse,
+  UpdateProfileRequest,
+} from '../dto';
 
 @Injectable()
 export class UsersService {
@@ -30,5 +34,44 @@ export class UsersService {
       where: { email },
     });
     return count > 0;
+  }
+
+  public async getProfile(accountId: number): Promise<ProfileResponse> {
+    const user = await this.userAccountItemRepository.findOneOrFail({
+      where: { id: accountId },
+      select: ['id', 'name', 'email', 'city'],
+    });
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      city: user.city ?? null,
+    };
+  }
+
+  public async updateProfile(
+    accountId: number,
+    dto: UpdateProfileRequest,
+  ): Promise<ProfileResponse> {
+    const user = await this.userAccountItemRepository.findOneByOrFail({
+      id: accountId,
+    });
+
+    if (dto.name !== undefined) {
+      user.name = dto.name;
+    }
+    if (dto.city !== undefined) {
+      user.city = dto.city ?? null;
+    }
+
+    await this.userAccountItemRepository.save(user);
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      city: user.city ?? null,
+    };
   }
 }

@@ -2,7 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ClientProxyService } from '../services/client-proxy.service';
 
-import { CreateUserAccountRequest, LoginRequest } from '@app/auth/dto';
+import {
+  CreateUserAccountRequest,
+  LoginRequest,
+  UpdateProfileRequest,
+} from '@app/auth/dto';
 
 import { CLIENT_PROXY_SERVICE } from '../constants';
 import { AUTH_REQUESTS } from '@app/auth/constants';
@@ -19,5 +23,13 @@ export class AuthService {
 
   signup(request: CreateUserAccountRequest) {
     return this.authClient.send(AUTH_REQUESTS.signup, request);
+  }
+
+  getProfile() {
+    return this.authClient.send(AUTH_REQUESTS.getProfile, undefined);
+  }
+
+  updateProfile(request: UpdateProfileRequest) {
+    return this.authClient.send(AUTH_REQUESTS.updateProfile, request);
   }
 }

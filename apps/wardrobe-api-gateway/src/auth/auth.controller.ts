@@ -1,11 +1,15 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 
 import { Public } from './decorators';
 
-import { CreateUserAccountRequest, LoginRequest } from '@app/auth/dto';
+import {
+  CreateUserAccountRequest,
+  LoginRequest,
+  UpdateProfileRequest,
+} from '@app/auth/dto';
 
 @Controller('auth')
 export class AuthController {
@@ -25,5 +29,15 @@ export class AuthController {
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   createUserAccount(@Body() request: CreateUserAccountRequest) {
     return this.authService.signup(request);
+  }
+
+  @Get('profile')
+  getProfile() {
+    return this.authService.getProfile();
+  }
+
+  @Patch('profile')
+  updateProfile(@Body() request: UpdateProfileRequest) {
+    return this.authService.updateProfile(request);
   }
 }

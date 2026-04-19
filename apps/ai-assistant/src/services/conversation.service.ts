@@ -66,6 +66,8 @@ export class ConversationService {
       prompt: dto.prompt,
       wardrobeItems: context.wardrobeItems,
       referenceImageUrls: context.referenceImageUrls,
+      activeWardrobeItems: context.activeWardrobeItems,
+      weather: context.weather,
     });
 
     const assistantMessage = await this.messageRepository.save({
@@ -100,16 +102,17 @@ export class ConversationService {
 
     const accountPreview = await this.getAccountPreview(accountId);
 
-    const wardrobeItems = await this.contextBuilder.fetchWardrobeItems(
-      accountPreview,
-      dto.wardrobeItemIds,
-    );
+    const context = await this.contextBuilder.buildContext(accountPreview, {
+      contextItemIds: dto.wardrobeItemIds,
+    });
 
     const summary = await this.geminiClient.generateOutfitSummary({
       occasion: dto.occasion,
       styleHint: dto.styleHint,
       season: dto.season,
-      wardrobeItems,
+      wardrobeItems: context.wardrobeItems,
+      activeWardrobeItems: context.activeWardrobeItems,
+      weather: context.weather,
     });
 
     await this.messageRepository.save({

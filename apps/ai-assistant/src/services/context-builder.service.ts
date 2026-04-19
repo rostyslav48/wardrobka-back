@@ -1,9 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 
-import { WardrobeItemDto } from '@app/wardrobe/dto';
+import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
+import { ItemStatus } from '@app/wardrobe/enums';
 import { MEDIA_STORAGE_REQUESTS } from '@app/media-storage/constants/requests';
 import { ItemPath } from '@app/media-storage/models';
 import {
@@ -11,12 +14,31 @@ import {
   WARDROBE_SERVICE,
 } from '@app/wardrobe-api-gateway/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
+import { UserAccountEntity } from '@app/common/database/entities/auth';
+
+import { WeatherService } from './weather.service';
+import { getCurrentSeason } from './current-season.util';
+import { WeatherContext } from '../types/weather-context.type';
+
+const MAX_ACTIVE_ITEMS_IN_CONTEXT = 50;
+
+export interface AiSystemContext {
+  wardrobeItems: WardrobeItemDto[];
+  referenceImageUrls: string[];
+  activeWardrobeItems: WardrobeItemPreviewDto[];
+  weather: WeatherContext | null;
+}
 
 @Injectable()
 export class ContextBuilderService {
+  private readonly logger = new Logger(ContextBuilderService.name);
+
   constructor(
     @Inject(WARDROBE_SERVICE) private readonly wardrobeClient: ClientProxy,
     @Inject(MEDIA_STORAGE_SERVICE) private readonly mediaClient: ClientProxy,
+    @InjectRepository(UserAccountEntity)
+    private readonly accountRepository: Repository<UserAccountEntity>,
+    private readonly weatherService: WeatherService,
   ) {}
 
   async buildContext(
@@ -25,16 +47,21 @@ export class ContextBuilderService {
       contextItemIds?: number[];
       referenceImageKeys?: string[];
     },
-  ): Promise<{
-    wardrobeItems: WardrobeItemDto[];
-    referenceImageUrls: string[];
-  }> {
-    const [wardrobeItems, referenceImageUrls] = await Promise.all([
-      this.fetchWardrobeItems(account, options.contextItemIds),
-      this.fetchReferenceImageUrls(options.referenceImageKeys),
-    ]);
+  ): Promise<AiSystemContext> {
+    const [wardrobeItems, referenceImageUrls, activeWardrobeItems, weather] =
+      await Promise.all([
+        this.fetchWardrobeItems(account, options.contextItemIds),
+        this.fetchReferenceImageUrls(options.referenceImageKeys),
+        this.fetchActiveSeasonalItems(account),
+        this.fetchWeatherForAccount(account.id),
+      ]);
 
-    return { wardrobeItems, referenceImageUrls };
+    return {
+      wardrobeItems,
+      referenceImageUrls,
+      activeWardrobeItems,
+      weather,
+    };
   }
 
   async fetchWardrobeItems(account: UserAccountPreview, ids?: number[]) {
@@ -48,6 +75,62 @@ export class ContextBuilderService {
         user: account,
       }),
     ) as Promise<WardrobeItemDto[]>;
+  }
+
+  private async fetchActiveSeasonalItems(
+    account: UserAccountPreview,
+  ): Promise<WardrobeItemPreviewDto[]> {
+    const season = getCurrentSeason();
+
+    try {
+      const items = (await firstValueFrom(
+        this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
+          data: { status: ItemStatus.Active, season },
+          user: account,
+        }),
+      )) as WardrobeItemPreviewDto[];
+
+      return this.capByFavouritesFirst(items ?? []);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to fetch active wardrobe items for account ${account.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
+  }
+
+  private capByFavouritesFirst(
+    items: WardrobeItemPreviewDto[],
+  ): WardrobeItemPreviewDto[] {
+    if (items.length <= MAX_ACTIVE_ITEMS_IN_CONTEXT) {
+      return items;
+    }
+
+    const sorted = [...items].sort((a, b) => {
+      if (a.favourite !== b.favourite) {
+        return a.favourite ? -1 : 1;
+      }
+      return (b.id ?? 0) - (a.id ?? 0);
+    });
+
+    return sorted.slice(0, MAX_ACTIVE_ITEMS_IN_CONTEXT);
+  }
+
+  private async fetchWeatherForAccount(
+    accountId: number,
+  ): Promise<WeatherContext | null> {
+    const account = await this.accountRepository.findOne({
+      where: { id: accountId },
+      select: ['id', 'city'],
+    });
+
+    if (!account?.city) {
+      return null;
+    }
+
+    return firstValueFrom(this.weatherService.getForecast(account.city));
   }
 
   private async fetchReferenceImageUrls(keys?: string[]) {
