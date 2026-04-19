@@ -56,7 +56,7 @@ describe('ContextBuilderService', () => {
     };
 
     accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
-    weatherService.getForecast.mockResolvedValue(weather);
+    weatherService.getForecast.mockReturnValue(of(weather));
     wardrobeSend.mockReturnValue(of([makeItem(1), makeItem(2)]));
 
     const result = await service.buildContext(account, {});
@@ -98,7 +98,7 @@ describe('ContextBuilderService', () => {
 
   it('omits weather when WeatherService returns null', async () => {
     accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
-    weatherService.getForecast.mockResolvedValue(null);
+    weatherService.getForecast.mockReturnValue(of(null));
     wardrobeSend.mockReturnValue(of([]));
 
     const result = await service.buildContext(account, {});

@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
+import { catchError, map, Observable, of, switchMap } from 'rxjs';
 
 import { HttpService } from '@app/common/http';
 
-import {
-  DayForecast,
-  WeatherContext,
-} from '../types/weather-context.type';
+import { DayForecast, WeatherContext } from '../types/weather-context.type';
 
 interface GeocodingResult {
   name: string;
@@ -40,58 +37,56 @@ export class WeatherService {
     private readonly configService: ConfigService,
   ) {}
 
-  async getForecast(city: string): Promise<WeatherContext | null> {
+  getForecast(city: string): Observable<WeatherContext | null> {
     const apiKey = this.configService.get<string>('OPENWEATHERMAP_API_KEY');
     if (!apiKey || !city) {
-      return null;
+      return of(null);
     }
 
-    try {
-      const location = await this.geocode(city, apiKey);
-      if (!location) {
-        return null;
-      }
+    return this.geocode(city, apiKey).pipe(
+      switchMap((location) => {
+        if (!location) {
+          return of(null);
+        }
 
-      const oneCall = await firstValueFrom(
-        this.httpService.get<OneCallResponse>(ONE_CALL_URL, {
-          params: {
-            lat: location.lat,
-            lon: location.lon,
-            appid: apiKey,
-            units: 'metric',
-            exclude: 'minutely,hourly,alerts,current',
-          },
-          timeoutMs: REQUEST_TIMEOUT_MS,
-        }),
-      );
-
-      return this.mapResponse(location.name, oneCall);
-    } catch (error) {
-      this.logger.warn(
-        `Weather forecast failed for "${city}": ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return null;
-    }
-  }
-
-  private async geocode(
-    city: string,
-    apiKey: string,
-  ): Promise<GeocodingResult | null> {
-    const results = await firstValueFrom(
-      this.httpService.get<GeocodingResult[]>(GEO_URL, {
-        params: { q: city, limit: 1, appid: apiKey },
-        timeoutMs: REQUEST_TIMEOUT_MS,
+        return this.httpService
+          .get<OneCallResponse>(ONE_CALL_URL, {
+            params: {
+              lat: location.lat,
+              lon: location.lon,
+              appid: apiKey,
+              units: 'metric',
+              exclude: 'minutely,hourly,alerts,current',
+            },
+            timeoutMs: REQUEST_TIMEOUT_MS,
+          })
+          .pipe(map((data) => this.mapResponse(location.name, data)));
+      }),
+      catchError((error) => {
+        this.logger.warn(
+          `Weather forecast failed for "${city}": ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return of(null);
       }),
     );
+  }
 
-    if (!Array.isArray(results) || results.length === 0) {
-      return null;
-    }
-
-    return results[0];
+  private geocode(
+    city: string,
+    apiKey: string,
+  ): Observable<GeocodingResult | null> {
+    return this.httpService
+      .get<GeocodingResult[]>(GEO_URL, {
+        params: { q: city, limit: 1, appid: apiKey },
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      })
+      .pipe(
+        map((results) =>
+          Array.isArray(results) && results.length ? results[0] : null,
+        ),
+      );
   }
 
   private mapResponse(
@@ -110,7 +105,7 @@ export class WeatherService {
       windSpeed: day.wind_speed,
     }));
 
-    // Tomorrow = index 1 (index 0 is today). Fall back to earliest day if unavailable.
+    // index 0 is today, index 1 is tomorrow
     const focus = dailyForecast[1] ?? dailyForecast[0];
 
     return {

@@ -130,7 +130,7 @@ export class ContextBuilderService {
       return null;
     }
 
-    return this.weatherService.getForecast(account.city);
+    return firstValueFrom(this.weatherService.getForecast(account.city));
   }
 
   private async fetchReferenceImageUrls(keys?: string[]) {

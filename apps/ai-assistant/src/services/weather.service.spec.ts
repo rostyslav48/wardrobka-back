@@ -1,4 +1,4 @@
-import { of, throwError } from 'rxjs';
+import { firstValueFrom, of, throwError } from 'rxjs';
 
 import { HttpService } from '@app/common/http';
 
@@ -41,7 +41,7 @@ describe('WeatherService', () => {
         }),
       );
 
-    const result = await service.getForecast('Kyiv');
+    const result = await firstValueFrom(service.getForecast('Kyiv'));
 
     expect(result).toMatchObject({
       city: 'Kyiv',
@@ -55,7 +55,7 @@ describe('WeatherService', () => {
 
   it('returns null when geocoding yields no match', async () => {
     httpGet.mockReturnValueOnce(of([]));
-    const result = await service.getForecast('Nowhereville');
+    const result = await firstValueFrom(service.getForecast('Nowhereville'));
     expect(result).toBeNull();
   });
 
@@ -64,7 +64,7 @@ describe('WeatherService', () => {
       .mockReturnValueOnce(of([{ name: 'Kyiv', lat: 50, lon: 30 }]))
       .mockReturnValueOnce(throwError(() => new Error('network down')));
 
-    const result = await service.getForecast('Kyiv');
+    const result = await firstValueFrom(service.getForecast('Kyiv'));
     expect(result).toBeNull();
   });
 
@@ -74,7 +74,7 @@ describe('WeatherService', () => {
       { get: httpGet } as unknown as HttpService,
       noKeyConfig as never,
     );
-    const result = await svc.getForecast('Kyiv');
+    const result = await firstValueFrom(svc.getForecast('Kyiv'));
     expect(result).toBeNull();
     expect(httpGet).not.toHaveBeenCalled();
   });
