@@ -25,7 +25,6 @@ export class AiAssistantController {
     @Ctx() context: RmqContext,
     @Body() { user, data }: RequestType<ChatRequestDto>,
   ) {
-    console.log('hereAswelffl');
     const result = await this.conversationService.handleChat(user.id, data);
     this.rmqService.ack(context);
 
@@ -83,5 +82,19 @@ export class AiAssistantController {
     this.rmqService.ack(context);
 
     return status;
+  }
+
+  @MessagePattern(AI_ASSISTANT_REQUESTS.getRecentSuggestions)
+  async getRecentSuggestions(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<{ limit?: number }>,
+  ) {
+    const suggestions = await this.conversationService.getRecentSuggestions(
+      user.id,
+      data?.limit,
+    );
+    this.rmqService.ack(context);
+
+    return suggestions;
   }
 }

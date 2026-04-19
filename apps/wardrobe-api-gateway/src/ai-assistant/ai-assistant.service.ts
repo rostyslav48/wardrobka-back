@@ -48,4 +48,12 @@ export class AiAssistantService {
       this.aiClient.send(AI_ASSISTANT_REQUESTS.upsertWebhookKey, dto),
     );
   }
+
+  getRecentSuggestions(limit?: number) {
+    return firstValueFrom(
+      this.aiClient.send(AI_ASSISTANT_REQUESTS.getRecentSuggestions, {
+        limit,
+      }),
+    );
+  }
 }
