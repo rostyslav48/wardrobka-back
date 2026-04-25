@@ -55,7 +55,7 @@ export class OutfitLogService {
 
     const log = this.outfitLogRepository.create({
       accountId,
-      date: dto.date,
+      date: new Date(dto.date),
       notes: dto.notes,
     });
 
@@ -79,7 +79,7 @@ export class OutfitLogService {
 
     if (dto.date !== undefined) {
       this.assertNotFutureDate(dto.date);
-      log.date = dto.date;
+      log.date = new Date(dto.date);
     }
 
     if (dto.notes !== undefined) {
