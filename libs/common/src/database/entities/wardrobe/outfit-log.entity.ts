@@ -23,8 +23,8 @@ export class OutfitLogEntity {
   @JoinColumn({ name: 'account_id' })
   account: UserAccountEntity;
 
-  @Column({ type: 'date' })
-  date: string;
+  @Column({ type: 'bigint' })
+  date: number;
 
   @OneToMany(() => OutfitLogItemEntity, (item) => item.outfitLog)
   items: OutfitLogItemEntity[];

@@ -180,7 +180,7 @@ export class ContextBuilderService {
       );
 
       return logs.map((log) => ({
-        date: log.date,
+        date: new Date(log.date).toISOString().split('T')[0],
         itemNames: log.wardrobeItemIds.map(
           (id) => nameById.get(id) ?? String(id),
         ),

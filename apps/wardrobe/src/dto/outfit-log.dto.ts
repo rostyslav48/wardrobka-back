@@ -1,4 +1,4 @@
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 export class OutfitLogDto {
   @Expose()
@@ -8,7 +8,8 @@ export class OutfitLogDto {
   accountId: number;
 
   @Expose()
-  date: string;
+  @Transform(({ value }) => Number(value))
+  date: number;
 
   @Expose()
   wardrobeItemIds: number[];

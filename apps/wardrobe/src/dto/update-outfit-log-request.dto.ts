@@ -1,15 +1,9 @@
-import {
-  IsArray,
-  IsDateString,
-  IsInt,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsArray, IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateOutfitLogRequestDto {
   @IsOptional()
-  @IsDateString()
-  date?: string;
+  @IsNumber()
+  date?: number;
 
   @IsOptional()
   @IsArray()

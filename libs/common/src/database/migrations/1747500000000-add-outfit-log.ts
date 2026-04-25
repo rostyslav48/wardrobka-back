@@ -8,7 +8,7 @@ export class AddOutfitLog1747500000000 implements MigrationInterface {
       CREATE TABLE IF NOT EXISTS "outfit_log" (
         "id"         uuid                     NOT NULL DEFAULT uuid_generate_v4(),
         "account_id" integer                  NOT NULL,
-        "date"       date                     NOT NULL,
+        "date"       bigint                   NOT NULL,
         "notes"      text,
         "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         CONSTRAINT "PK_outfit_log" PRIMARY KEY ("id")
