@@ -9,8 +9,12 @@ import { MediaStorageModule } from './media-storage/media-storage.module';
 
 import { WardrobeController } from './wardrobe/wardrobe.controller';
 import { WardrobeService } from './wardrobe/wardrobe.service';
+import { OutfitLogController } from './outfit-log/outfit-log.controller';
+import { OutfitLogService } from './outfit-log/outfit-log.service';
 
 import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe/wardrobe-item.entity';
+import { OutfitLogEntity } from '@app/common/database/entities/wardrobe/outfit-log.entity';
+import { OutfitLogItemEntity } from '@app/common/database/entities/wardrobe/outfit-log-item.entity';
 import { UserAccountEntity } from '@app/common/database/entities/auth/user-account.entity';
 
 @Module({
@@ -26,10 +30,15 @@ import { UserAccountEntity } from '@app/common/database/entities/auth/user-accou
       }),
       envFilePath: ['./apps/wardrobe/.env', './libs/common/src/database/.env'],
     }),
-    TypeOrmModule.forFeature([UserAccountEntity, WardrobeItemEntity]),
+    TypeOrmModule.forFeature([
+      UserAccountEntity,
+      WardrobeItemEntity,
+      OutfitLogEntity,
+      OutfitLogItemEntity,
+    ]),
     MediaStorageModule,
   ],
-  controllers: [WardrobeController],
-  providers: [WardrobeService],
+  controllers: [WardrobeController, OutfitLogController],
+  providers: [WardrobeService, OutfitLogService],
 })
 export class WardrobeModule {}

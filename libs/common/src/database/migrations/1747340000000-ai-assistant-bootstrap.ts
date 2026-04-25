@@ -65,7 +65,9 @@ export class AiAssistantBootstrap1747340000000 implements MigrationInterface {
     );
     await queryRunner.query(`DROP TABLE IF EXISTS "assistant_webhook_job"`);
 
-    await queryRunner.query(`DROP TABLE IF EXISTS "assistant_outfit_suggestion"`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "assistant_outfit_suggestion"`,
+    );
 
     await queryRunner.query(`DROP TABLE IF EXISTS "assistant_message"`);
 

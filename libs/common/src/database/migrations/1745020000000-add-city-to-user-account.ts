@@ -10,6 +10,8 @@ export class AddCityToUserAccount1745020000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE "user_account" DROP COLUMN IF EXISTS "city"`);
+    await queryRunner.query(
+      `ALTER TABLE "user_account" DROP COLUMN IF EXISTS "city"`,
+    );
   }
 }

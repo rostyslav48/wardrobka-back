@@ -69,6 +69,7 @@ export class ConversationService {
       referenceImageUrls: context.referenceImageUrls,
       activeWardrobeItems: context.activeWardrobeItems,
       weather: context.weather,
+      recentlyWorn: context.recentlyWorn,
     });
 
     const assistantMessage = await this.messageRepository.save({
@@ -114,6 +115,7 @@ export class ConversationService {
       wardrobeItems: context.wardrobeItems,
       activeWardrobeItems: context.activeWardrobeItems,
       weather: context.weather,
+      recentlyWorn: context.recentlyWorn,
     });
 
     await this.messageRepository.save({

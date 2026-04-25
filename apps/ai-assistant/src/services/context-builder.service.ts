@@ -4,8 +4,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 
-import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
-import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
+import {
+  OutfitLogDto,
+  WardrobeItemDto,
+  WardrobeItemPreviewDto,
+} from '@app/wardrobe/dto';
+import {
+  OUTFIT_LOG_REQUESTS,
+  WARDROBE_REQUESTS,
+} from '@app/wardrobe/constants';
 import { ItemStatus } from '@app/wardrobe/enums';
 import { MEDIA_STORAGE_REQUESTS } from '@app/media-storage/constants/requests';
 import { ItemPath } from '@app/media-storage/models';
@@ -22,11 +29,17 @@ import { WeatherContext } from '../types/weather-context.type';
 
 const MAX_ACTIVE_ITEMS_IN_CONTEXT = 50;
 
+export interface RecentlyWornEntry {
+  date: string;
+  itemNames: string[];
+}
+
 export interface AiSystemContext {
   wardrobeItems: WardrobeItemDto[];
   referenceImageUrls: string[];
   activeWardrobeItems: WardrobeItemPreviewDto[];
   weather: WeatherContext | null;
+  recentlyWorn: RecentlyWornEntry[];
 }
 
 @Injectable()
@@ -48,19 +61,26 @@ export class ContextBuilderService {
       referenceImageKeys?: string[];
     },
   ): Promise<AiSystemContext> {
-    const [wardrobeItems, referenceImageUrls, activeWardrobeItems, weather] =
-      await Promise.all([
-        this.fetchWardrobeItems(account, options.contextItemIds),
-        this.fetchReferenceImageUrls(options.referenceImageKeys),
-        this.fetchActiveSeasonalItems(account),
-        this.fetchWeatherForAccount(account.id),
-      ]);
+    const [
+      wardrobeItems,
+      referenceImageUrls,
+      activeWardrobeItems,
+      weather,
+      recentlyWorn,
+    ] = await Promise.all([
+      this.fetchWardrobeItems(account, options.contextItemIds),
+      this.fetchReferenceImageUrls(options.referenceImageKeys),
+      this.fetchActiveSeasonalItems(account),
+      this.fetchWeatherForAccount(account.id),
+      this.fetchRecentlyWorn(account),
+    ]);
 
     return {
       wardrobeItems,
       referenceImageUrls,
       activeWardrobeItems,
       weather,
+      recentlyWorn,
     };
   }
 
@@ -131,6 +151,48 @@ export class ContextBuilderService {
     }
 
     return firstValueFrom(this.weatherService.getForecast(account.city));
+  }
+
+  async fetchRecentlyWorn(
+    account: UserAccountPreview,
+  ): Promise<RecentlyWornEntry[]> {
+    const RECENT_LOG_LIMIT = 7;
+
+    try {
+      const logs = (await firstValueFrom(
+        this.wardrobeClient.send(OUTFIT_LOG_REQUESTS.findMany, {
+          data: { limit: RECENT_LOG_LIMIT },
+          user: account,
+        }),
+      )) as OutfitLogDto[];
+
+      if (!logs?.length) {
+        return [];
+      }
+
+      const allItemIds = [
+        ...new Set(logs.flatMap((log) => log.wardrobeItemIds)),
+      ];
+
+      const items = await this.fetchWardrobeItems(account, allItemIds);
+      const nameById = new Map(
+        items.map((item) => [item.id, item.name || item.type]),
+      );
+
+      return logs.map((log) => ({
+        date: log.date,
+        itemNames: log.wardrobeItemIds.map(
+          (id) => nameById.get(id) ?? String(id),
+        ),
+      }));
+    } catch (error) {
+      this.logger.warn(
+        `Failed to fetch recently worn logs for account ${account.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
   }
 
   private async fetchReferenceImageUrls(keys?: string[]) {

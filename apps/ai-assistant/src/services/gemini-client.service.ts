@@ -7,6 +7,7 @@ import {
 } from '@google/generative-ai';
 
 import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
+import { RecentlyWornEntry } from './context-builder.service';
 
 import { WeatherContext } from '../types/weather-context.type';
 
@@ -16,6 +17,7 @@ interface ChatContext {
   referenceImageUrls: string[];
   activeWardrobeItems?: WardrobeItemPreviewDto[];
   weather?: WeatherContext | null;
+  recentlyWorn?: RecentlyWornEntry[];
 }
 
 interface OutfitContext {
@@ -25,6 +27,7 @@ interface OutfitContext {
   wardrobeItems: WardrobeItemDto[];
   activeWardrobeItems?: WardrobeItemPreviewDto[];
   weather?: WeatherContext | null;
+  recentlyWorn?: RecentlyWornEntry[];
 }
 
 @Injectable()
@@ -76,6 +79,7 @@ export class GeminiClientService {
     referenceImageUrls,
     activeWardrobeItems,
     weather,
+    recentlyWorn,
   }: ChatContext) {
     const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
     const imageContext = referenceImageUrls.length
@@ -86,6 +90,7 @@ export class GeminiClientService {
       'You are an AI wardrobe assistant helping users make outfit decisions.',
       this.serializeWeather(weather),
       this.serializeActiveItems(activeWardrobeItems),
+      this.serializeRecentlyWorn(recentlyWorn),
       wardrobeContext,
       imageContext,
       'User request:',
@@ -102,6 +107,7 @@ export class GeminiClientService {
     wardrobeItems,
     activeWardrobeItems,
     weather,
+    recentlyWorn,
   }: OutfitContext) {
     const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
 
@@ -112,6 +118,7 @@ export class GeminiClientService {
       styleHint ? `Style hint: ${styleHint}` : null,
       this.serializeWeather(weather),
       this.serializeActiveItems(activeWardrobeItems),
+      this.serializeRecentlyWorn(recentlyWorn),
       wardrobeContext,
       'Respond with a concise paragraph and highlight which pieces to combine.',
     ]
@@ -143,9 +150,7 @@ export class GeminiClientService {
     return lines.join('\n');
   }
 
-  private serializeActiveItems(
-    items?: WardrobeItemPreviewDto[],
-  ): string {
+  private serializeActiveItems(items?: WardrobeItemPreviewDto[]): string {
     if (items === undefined) {
       return '';
     }
@@ -173,6 +178,19 @@ export class GeminiClientService {
       ...items.map(
         (item) =>
           `- ${item.name || item.type} (${item.color || 'color N/A'}, ${item.season || 'season N/A'})`,
+      ),
+    ].join('\n');
+  }
+
+  private serializeRecentlyWorn(entries?: RecentlyWornEntry[]): string {
+    if (!entries?.length) {
+      return '';
+    }
+
+    return [
+      'Recently worn:',
+      ...entries.map(
+        (entry) => `- ${entry.date}: ${entry.itemNames.join(', ')}`,
       ),
     ].join('\n');
   }
