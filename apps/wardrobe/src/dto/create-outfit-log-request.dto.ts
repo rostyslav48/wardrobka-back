@@ -1,8 +1,8 @@
-import { IsArray, IsInt, IsISO8601, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateOutfitLogRequestDto {
-  @IsISO8601()
-  date: string;
+  @IsNumber()
+  date: number;
 
   @IsArray()
   @IsInt({ each: true })
