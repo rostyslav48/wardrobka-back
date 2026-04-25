@@ -6,9 +6,17 @@ import * as Joi from 'joi';
 
 import { DatabaseModule, RmqModule } from '@app/common';
 import { HttpService } from '@app/common/http';
-import { AssistantMessageEntity, AssistantOutfitSuggestionEntity, AssistantSessionEntity, AssistantWebhookJobEntity } from '@app/common/database/entities/assistant';
+import {
+  AssistantMessageEntity,
+  AssistantOutfitSuggestionEntity,
+  AssistantSessionEntity,
+  AssistantWebhookJobEntity,
+} from '@app/common/database/entities/assistant';
 import { UserAccountEntity } from '@app/common/database/entities/auth';
-import { MEDIA_STORAGE_SERVICE, WARDROBE_SERVICE } from '@app/wardrobe-api-gateway/constants';
+import {
+  MEDIA_STORAGE_SERVICE,
+  WARDROBE_SERVICE,
+} from '@app/wardrobe-api-gateway/constants';
 
 import { AiAssistantController } from './controllers/ai-assistant.controller';
 import { ConversationService } from './services/conversation.service';
@@ -67,4 +75,3 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
   ],
 })
 export class AiAssistantModule {}
-

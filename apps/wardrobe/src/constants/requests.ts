@@ -6,3 +6,11 @@ export const WARDROBE_REQUESTS = {
   delete: 'wardrobe/delete',
   findManyByIds: 'wardrobe/get_many_by_ids',
 };
+
+export const OUTFIT_LOG_REQUESTS = {
+  findMany: 'outfit_log/find_many',
+  findOne: 'outfit_log/find_one',
+  create: 'outfit_log/create',
+  update: 'outfit_log/update',
+  delete: 'outfit_log/delete',
+};
