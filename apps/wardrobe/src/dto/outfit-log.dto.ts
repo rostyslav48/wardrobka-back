@@ -8,7 +8,7 @@ export class OutfitLogDto {
   accountId: number;
 
   @Expose()
-  date: string;
+  date: Date;
 
   @Expose()
   wardrobeItemIds: number[];

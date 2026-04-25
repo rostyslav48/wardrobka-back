@@ -128,8 +128,7 @@ export class OutfitLogService {
   }
 
   private assertNotFutureDate(date: string) {
-    const today = new Date().toISOString().split('T')[0];
-    if (date > today) {
+    if (new Date(date) > new Date()) {
       throw new RpcException({
         message: 'Date cannot be in the future',
         statusCode: 400,
