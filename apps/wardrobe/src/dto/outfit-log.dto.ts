@@ -8,7 +8,7 @@ export class OutfitLogDto {
   accountId: number;
 
   @Expose()
-  @Transform(({ value }) => (value instanceof Date ? value.getTime() : value))
+  @Transform(({ value }) => Number(value))
   date: number;
 
   @Expose()
