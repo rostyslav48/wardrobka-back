@@ -12,20 +12,19 @@ interface GeocodingResult {
   lon: number;
 }
 
-interface OneCallDaily {
+interface ForecastItem {
   dt: number;
-  temp: { day: number };
-  humidity: number;
-  wind_speed: number;
+  main: { temp: number; humidity: number };
+  wind: { speed: number };
   weather: Array<{ description: string }>;
 }
 
-interface OneCallResponse {
-  daily: OneCallDaily[];
+interface ForecastResponse {
+  list: ForecastItem[];
 }
 
 const GEO_URL = 'https://api.openweathermap.org/geo/1.0/direct';
-const ONE_CALL_URL = 'https://api.openweathermap.org/data/3.0/onecall';
+const FORECAST_URL = 'https://api.openweathermap.org/data/2.5/forecast';
 const REQUEST_TIMEOUT_MS = 5000;
 
 @Injectable()
@@ -50,13 +49,13 @@ export class WeatherService {
         }
 
         return this.httpService
-          .get<OneCallResponse>(ONE_CALL_URL, {
+          .get<ForecastResponse>(FORECAST_URL, {
             params: {
               lat: location.lat,
               lon: location.lon,
               appid: apiKey,
               units: 'metric',
-              exclude: 'minutely,hourly,alerts,current',
+              cnt: 40,
             },
             timeoutMs: REQUEST_TIMEOUT_MS,
           })
@@ -91,19 +90,38 @@ export class WeatherService {
 
   private mapResponse(
     cityName: string,
-    response: OneCallResponse,
+    response: ForecastResponse,
   ): WeatherContext | null {
-    if (!response?.daily?.length) {
+    if (!response?.list?.length) {
       return null;
     }
 
-    const dailyForecast: DayForecast[] = response.daily.map((day) => ({
-      date: new Date(day.dt * 1000).toISOString().slice(0, 10),
-      temperatureCelsius: Math.round(day.temp.day),
-      condition: day.weather?.[0]?.description ?? 'unknown',
-      humidity: day.humidity,
-      windSpeed: day.wind_speed,
-    }));
+    const byDay = new Map<string, ForecastItem[]>();
+    for (const item of response.list) {
+      const date = new Date(item.dt * 1000).toISOString().slice(0, 10);
+      const bucket = byDay.get(date) ?? [];
+      bucket.push(item);
+      byDay.set(date, bucket);
+    }
+
+    const dailyForecast: DayForecast[] = Array.from(byDay.entries()).map(
+      ([date, items]) => {
+        // prefer the noon slot, fall back to first entry
+        const rep =
+          items.find((i) => {
+            const hour = new Date(i.dt * 1000).getUTCHours();
+            return hour >= 11 && hour <= 13;
+          }) ?? items[0];
+
+        return {
+          date,
+          temperatureCelsius: Math.round(rep.main.temp),
+          condition: rep.weather?.[0]?.description ?? 'unknown',
+          humidity: rep.main.humidity,
+          windSpeed: rep.wind.speed,
+        };
+      },
+    );
 
     // index 0 is today, index 1 is tomorrow
     const focus = dailyForecast[1] ?? dailyForecast[0];
