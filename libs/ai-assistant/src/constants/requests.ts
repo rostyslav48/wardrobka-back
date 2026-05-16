@@ -5,4 +5,6 @@ export const AI_ASSISTANT_REQUESTS = {
   getSessionMessages: 'ai-assistant/get-session-messages',
   upsertWebhookKey: 'ai-assistant/upsert-webhook-key',
   getRecentSuggestions: 'ai-assistant/get-recent-suggestions',
+  getOutfitSuggestions: 'ai-assistant/get-outfit-suggestions',
+  deleteOutfitSuggestion: 'ai-assistant/delete-outfit-suggestion',
 };

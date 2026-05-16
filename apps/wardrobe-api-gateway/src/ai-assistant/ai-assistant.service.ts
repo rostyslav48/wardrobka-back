@@ -56,4 +56,19 @@ export class AiAssistantService {
       }),
     );
   }
+
+  getOutfitSuggestions(limit?: number, offset?: number) {
+    return firstValueFrom(
+      this.aiClient.send(AI_ASSISTANT_REQUESTS.getOutfitSuggestions, {
+        limit,
+        offset,
+      }),
+    );
+  }
+
+  deleteOutfitSuggestion(id: string) {
+    return firstValueFrom(
+      this.aiClient.send(AI_ASSISTANT_REQUESTS.deleteOutfitSuggestion, { id }),
+    );
+  }
 }
