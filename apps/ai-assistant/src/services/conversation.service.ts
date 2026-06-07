@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
@@ -282,6 +286,46 @@ export class ConversationService {
         { excludeExtraneousValues: true },
       ),
     );
+  }
+
+  async getOutfitSuggestions(
+    accountId: number,
+    limit = 20,
+    offset = 0,
+  ): Promise<RecentSuggestionDto[]> {
+    const suggestions = await this.outfitRepository
+      .createQueryBuilder('suggestion')
+      .leftJoinAndSelect('suggestion.session', 'session')
+      .where('session.accountId = :accountId', { accountId })
+      .orderBy('suggestion.createdAt', 'DESC')
+      .limit(limit)
+      .offset(offset)
+      .getMany();
+
+    return suggestions.map((s) =>
+      plainToInstance(
+        RecentSuggestionDto,
+        { ...s, sessionTopic: s.session?.topic ?? '' },
+        { excludeExtraneousValues: true },
+      ),
+    );
+  }
+
+  async deleteOutfitSuggestion(accountId: number, id: string): Promise<void> {
+    const suggestion = await this.outfitRepository.findOne({
+      where: { id },
+      relations: ['session'],
+    });
+
+    if (!suggestion) {
+      throw new NotFoundException('Outfit suggestion not found');
+    }
+
+    if (suggestion.session.accountId !== accountId) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    await this.outfitRepository.delete(id);
   }
 
   private deriveTopic(prompt: string) {

@@ -97,4 +97,30 @@ export class AiAssistantController {
 
     return suggestions;
   }
+
+  @MessagePattern(AI_ASSISTANT_REQUESTS.getOutfitSuggestions)
+  async getOutfitSuggestions(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<{ limit?: number; offset?: number }>,
+  ) {
+    const suggestions = await this.conversationService.getOutfitSuggestions(
+      user.id,
+      data?.limit,
+      data?.offset,
+    );
+    this.rmqService.ack(context);
+
+    return suggestions;
+  }
+
+  @MessagePattern(AI_ASSISTANT_REQUESTS.deleteOutfitSuggestion)
+  async deleteOutfitSuggestion(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<{ id: string }>,
+  ) {
+    await this.conversationService.deleteOutfitSuggestion(user.id, data.id);
+    this.rmqService.ack(context);
+
+    return { deleted: true };
+  }
 }

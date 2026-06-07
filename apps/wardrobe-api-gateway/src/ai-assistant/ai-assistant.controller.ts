@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 
 import {
   ChatRequestDto,
   GenerateOutfitRequestDto,
+  OutfitSuggestionsQueryDto,
   UpsertWebhookKeyDto,
 } from '@app/ai-assistant/dto';
 import { IsInt, IsOptional } from 'class-validator';
@@ -47,5 +57,18 @@ export class AiAssistantController {
   @Get('suggestions/recent')
   getRecentSuggestions(@Query() query: RecentSuggestionsQuery) {
     return this.aiAssistantService.getRecentSuggestions(query.limit);
+  }
+
+  @Get('outfit-suggestions')
+  getOutfitSuggestions(@Query() query: OutfitSuggestionsQueryDto) {
+    return this.aiAssistantService.getOutfitSuggestions(
+      query.limit,
+      query.offset,
+    );
+  }
+
+  @Delete('outfit-suggestions/:id')
+  deleteOutfitSuggestion(@Param('id') id: string) {
+    return this.aiAssistantService.deleteOutfitSuggestion(id);
   }
 }

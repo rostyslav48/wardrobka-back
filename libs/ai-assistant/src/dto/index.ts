@@ -4,3 +4,4 @@ export * from './assistant-session.dto';
 export * from './assistant-message.dto';
 export * from './upsert-webhook-key.dto';
 export * from './recent-suggestion.dto';
+export * from './outfit-suggestions-query.dto';
