@@ -22,19 +22,17 @@ describe('WeatherService', () => {
       .mockReturnValueOnce(of([{ name: 'Kyiv', lat: 50.45, lon: 30.52 }]))
       .mockReturnValueOnce(
         of({
-          daily: [
+          list: [
             {
               dt: 1_700_000_000,
-              temp: { day: 10 },
-              humidity: 70,
-              wind_speed: 3.2,
+              main: { temp: 10, humidity: 70 },
+              wind: { speed: 3.2 },
               weather: [{ description: 'clear sky' }],
             },
             {
               dt: 1_700_086_400,
-              temp: { day: 12.4 },
-              humidity: 65,
-              wind_speed: 4.1,
+              main: { temp: 12.4, humidity: 65 },
+              wind: { speed: 4.1 },
               weather: [{ description: 'light rain' }],
             },
           ],
