@@ -34,4 +34,7 @@ export class UserAccountEntity {
 
   @Column({ length: 100, nullable: true })
   city?: string;
+
+  @Column({ type: 'text', nullable: true, name: 'expo_push_token' })
+  expoPushToken?: string | null;
 }

@@ -74,4 +74,14 @@ export class UsersService {
       city: user.city ?? null,
     };
   }
+
+  public async upsertPushToken(
+    accountId: number,
+    expoPushToken?: string | null,
+  ): Promise<void> {
+    await this.userAccountItemRepository.update(
+      { id: accountId },
+      { expoPushToken: expoPushToken ?? null },
+    );
+  }
 }

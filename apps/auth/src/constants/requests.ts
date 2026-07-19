@@ -3,4 +3,5 @@ export const AUTH_REQUESTS = {
   signup: 'auth/signup',
   getProfile: 'auth/get-profile',
   updateProfile: 'auth/update-profile',
+  upsertPushToken: 'auth/upsert-push-token',
 };

@@ -19,6 +19,7 @@ import {
   LoginRequest,
   ProfileResponse,
   UpdateProfileRequest,
+  UpsertPushTokenRequest,
 } from '../dto';
 
 import { AUTH_REQUESTS } from '../constants';
@@ -92,5 +93,20 @@ export class AuthController {
     this.rmqService.ack(context);
 
     return profile;
+  }
+
+  @MessagePattern(AUTH_REQUESTS.upsertPushToken)
+  async upsertPushToken(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<UpsertPushTokenRequest>,
+  ): Promise<{ success: true }> {
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    await this.usersService.upsertPushToken(user.id, data.expoPushToken);
+    this.rmqService.ack(context);
+
+    return { success: true };
   }
 }

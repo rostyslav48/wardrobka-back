@@ -6,6 +6,7 @@ import {
   CreateUserAccountRequest,
   LoginRequest,
   UpdateProfileRequest,
+  UpsertPushTokenRequest,
 } from '@app/auth/dto';
 
 import { CLIENT_PROXY_SERVICE } from '../constants';
@@ -31,5 +32,9 @@ export class AuthService {
 
   updateProfile(request: UpdateProfileRequest) {
     return this.authClient.send(AUTH_REQUESTS.updateProfile, request);
+  }
+
+  upsertPushToken(request: UpsertPushTokenRequest) {
+    return this.authClient.send(AUTH_REQUESTS.upsertPushToken, request);
   }
 }

@@ -9,6 +9,7 @@ import {
   CreateUserAccountRequest,
   LoginRequest,
   UpdateProfileRequest,
+  UpsertPushTokenRequest,
 } from '@app/auth/dto';
 
 @Controller('auth')
@@ -39,5 +40,10 @@ export class AuthController {
   @Patch('profile')
   updateProfile(@Body() request: UpdateProfileRequest) {
     return this.authService.updateProfile(request);
+  }
+
+  @Patch('push-token')
+  upsertPushToken(@Body() request: UpsertPushTokenRequest) {
+    return this.authService.upsertPushToken(request);
   }
 }
