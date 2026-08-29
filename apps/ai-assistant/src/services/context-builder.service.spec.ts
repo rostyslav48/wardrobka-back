@@ -113,3 +113,133 @@ describe('ContextBuilderService', () => {
     expect(result.activeWardrobeItems).toEqual([]);
   });
 });
+
+describe('ContextBuilderService — fetchReferenceImageParts', () => {
+  let wardrobeClient: ClientProxy;
+  let mediaClient: ClientProxy;
+  let accountRepo: { findOne: jest.Mock };
+  let weatherService: { getForecast: jest.Mock };
+  let service: ContextBuilderService;
+  let fetchMock: jest.Mock;
+  const originalFetch = global.fetch;
+
+  const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3]);
+  const pngBytes = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+  ]);
+
+  beforeEach(() => {
+    wardrobeClient = { send: jest.fn() } as unknown as ClientProxy;
+    mediaClient = { send: jest.fn() } as unknown as ClientProxy;
+    accountRepo = { findOne: jest.fn() };
+    weatherService = { getForecast: jest.fn() };
+    service = new ContextBuilderService(
+      wardrobeClient,
+      mediaClient,
+      accountRepo as unknown as Repository<UserAccountEntity>,
+      weatherService as unknown as WeatherService,
+    );
+    fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const okResponse = (body: Buffer, headers: Record<string, string> = {}) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (key: string) => headers[key.toLowerCase()] ?? null },
+    arrayBuffer: async () =>
+      body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
+  });
+
+  it('attaches images as base64 with mimeType read from content-type', async () => {
+    fetchMock.mockResolvedValue(
+      okResponse(jpegBytes, { 'content-type': 'image/jpeg' }),
+    );
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/a.jpg',
+    ]);
+
+    expect(result).toEqual([
+      { mimeType: 'image/jpeg', data: jpegBytes.toString('base64') },
+    ]);
+  });
+
+  it('sniffs mimeType from magic bytes when content-type is missing', async () => {
+    fetchMock.mockResolvedValue(okResponse(pngBytes));
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/a.png',
+    ]);
+
+    expect(result[0].mimeType).toBe('image/png');
+  });
+
+  it('caps at 5 images and never fetches more than that', async () => {
+    fetchMock.mockResolvedValue(
+      okResponse(jpegBytes, { 'content-type': 'image/jpeg' }),
+    );
+    const urls = Array.from(
+      { length: 8 },
+      (_, i) => `https://signed.example.com/${i}.jpg`,
+    );
+
+    const result = await service.fetchReferenceImageParts(urls);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(result).toHaveLength(5);
+  });
+
+  it('skips a failed fetch with a warning and never throws', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404 });
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/missing.jpg',
+    ]);
+
+    expect(result).toEqual([]);
+  });
+
+  it('skips an oversized image with a warning', async () => {
+    const bigBuffer = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff]),
+      Buffer.alloc(11 * 1024 * 1024),
+    ]);
+    fetchMock.mockResolvedValue(
+      okResponse(bigBuffer, { 'content-type': 'image/jpeg' }),
+    );
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/huge.jpg',
+    ]);
+
+    expect(result).toEqual([]);
+  });
+
+  it('never aborts the whole call when one of several fetches fails', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce(
+        okResponse(jpegBytes, { 'content-type': 'image/jpeg' }),
+      );
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/broken.jpg',
+      'https://signed.example.com/ok.jpg',
+    ]);
+
+    expect(result).toEqual([
+      { mimeType: 'image/jpeg', data: jpegBytes.toString('base64') },
+    ]);
+  });
+
+  it('returns an empty array when no urls are given', async () => {
+    const result = await service.fetchReferenceImageParts([]);
+    expect(result).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

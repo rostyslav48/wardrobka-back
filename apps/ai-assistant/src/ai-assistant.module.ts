@@ -43,6 +43,7 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
         PROTECTED_DATA_SECRET: Joi.string().min(16).required(),
         GEMINI_API_KEY: Joi.string().required(),
         GEMINI_MODEL: Joi.string().required(),
+        AI_HISTORY_MESSAGE_LIMIT: Joi.number().integer().min(1).default(10),
         AI_ASSISTANT_WEBHOOK_URL: Joi.string().uri().required(),
         AI_ASSISTANT_WEBHOOK_AUTH_HEADER: Joi.string().required(),
         WEBHOOK_MAX_ATTEMPTS: Joi.number().default(5),

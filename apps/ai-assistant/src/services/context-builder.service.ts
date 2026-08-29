@@ -28,10 +28,17 @@ import { getCurrentSeason } from './current-season.util';
 import { WeatherContext } from '../types/weather-context.type';
 
 const MAX_ACTIVE_ITEMS_IN_CONTEXT = 50;
+const MAX_REFERENCE_IMAGES = 5;
+const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export interface RecentlyWornEntry {
   date: string;
   itemNames: string[];
+}
+
+export interface ReferenceImagePart {
+  mimeType: string;
+  data: string;
 }
 
 export interface AiSystemContext {
@@ -212,5 +219,98 @@ export class ContextBuilderService {
     )) as Record<string, string>;
 
     return keys.map((_, index) => result[index] ?? null).filter(Boolean);
+  }
+
+  /**
+   * Fetches reference image bytes from already-resolved signed URLs so they can
+   * be attached to the Gemini call as `inlineData` parts. Caps at
+   * MAX_REFERENCE_IMAGES; a failed fetch or an oversized image is skipped with
+   * a warning and never aborts the caller.
+   */
+  async fetchReferenceImageParts(
+    urls: string[],
+  ): Promise<ReferenceImagePart[]> {
+    const capped = urls.slice(0, MAX_REFERENCE_IMAGES);
+    const parts = await Promise.all(
+      capped.map((url) => this.fetchReferenceImagePart(url)),
+    );
+
+    return parts.filter((part): part is ReferenceImagePart => part !== null);
+  }
+
+  private async fetchReferenceImagePart(
+    url: string,
+  ): Promise<ReferenceImagePart | null> {
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Reference image fetch failed (HTTP ${response.status}): ${url}`,
+        );
+        return null;
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      if (buffer.byteLength > MAX_REFERENCE_IMAGE_BYTES) {
+        this.logger.warn(
+          `Reference image exceeds ${MAX_REFERENCE_IMAGE_BYTES} bytes, skipping: ${url}`,
+        );
+        return null;
+      }
+
+      const mimeType =
+        response.headers.get('content-type')?.split(';')[0]?.trim() ||
+        this.sniffImageMimeType(buffer);
+
+      if (!mimeType) {
+        this.logger.warn(
+          `Could not determine mime type for reference image, skipping: ${url}`,
+        );
+        return null;
+      }
+
+      return { mimeType, data: buffer.toString('base64') };
+    } catch (error) {
+      this.logger.warn(
+        `Reference image fetch threw for ${url}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private sniffImageMimeType(buffer: Buffer): string | null {
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+      return 'image/jpeg';
+    }
+
+    if (
+      buffer.length >= 8 &&
+      buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
+      return 'image/png';
+    }
+
+    if (
+      buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return 'image/webp';
+    }
+
+    if (
+      buffer.length >= 6 &&
+      ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'))
+    ) {
+      return 'image/gif';
+    }
+
+    return null;
   }
 }
