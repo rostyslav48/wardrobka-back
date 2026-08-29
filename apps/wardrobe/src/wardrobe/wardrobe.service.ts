@@ -4,7 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { EntityManager, In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 
-import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe';
+import {
+  OutfitLogItemEntity,
+  WardrobeItemEntity,
+} from '@app/common/database/entities/wardrobe';
 
 import { MediaStorageService } from '../media-storage/media-storage.service';
 
@@ -24,6 +27,8 @@ export class WardrobeService {
     private readonly entityManager: EntityManager,
     @InjectRepository(WardrobeItemEntity)
     private readonly wardrobeItemRepository: Repository<WardrobeItemEntity>,
+    @InjectRepository(OutfitLogItemEntity)
+    private readonly outfitLogItemRepository: Repository<OutfitLogItemEntity>,
     private readonly mediaStorageService: MediaStorageService,
     private readonly configService: ConfigService,
   ) {}
@@ -179,6 +184,11 @@ export class WardrobeService {
     if (item.img_path) {
       await this.mediaStorageService.delete(item.img_path);
     }
+
+    // Outfit-log entries have no DB-level FK to wardrobe items (cross-service
+    // tables), so the join rows must be cleaned up explicitly or they keep
+    // pointing at a deleted item — see BUG-011.
+    await this.outfitLogItemRepository.delete({ wardrobeItemId: id });
 
     return this.wardrobeItemRepository.delete({ id, accountId });
   }

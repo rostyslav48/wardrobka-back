@@ -14,7 +14,7 @@ export type AssistantWebhookJobStatus =
   | 'failed';
 
 @Entity({ name: 'assistant_webhook_job' })
-@Index(['status', 'scheduledAt'])
+@Index('IDX_assistant_webhook_status_schedule', ['status', 'scheduledAt'])
 export class AssistantWebhookJobEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -48,9 +48,9 @@ export class AssistantWebhookJobEntity {
   })
   processedAt?: Date;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

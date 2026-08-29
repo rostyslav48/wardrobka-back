@@ -33,7 +33,7 @@ export class WardrobeItemDto {
   status: ItemStatus;
 
   @Expose()
-  favorite: boolean;
+  favourite: boolean;
 
   @Expose()
   fit_type?: FitType;

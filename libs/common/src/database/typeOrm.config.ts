@@ -2,7 +2,11 @@ import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
 import { ConfigService } from '@nestjs/config';
 
-import { WardrobeItemEntity } from './entities/wardrobe';
+import {
+  WardrobeItemEntity,
+  OutfitLogEntity,
+  OutfitLogItemEntity,
+} from './entities/wardrobe';
 import { UserAccountEntity } from './entities/auth';
 import {
   AssistantMessageEntity,
@@ -18,6 +22,8 @@ const configService = new ConfigService();
 export const databaseEntities = [
   UserAccountEntity,
   WardrobeItemEntity,
+  OutfitLogEntity,
+  OutfitLogItemEntity,
   AssistantSessionEntity,
   AssistantMessageEntity,
   AssistantOutfitSuggestionEntity,
@@ -31,7 +37,9 @@ export const AppDataSource = new DataSource({
   database: configService.getOrThrow('POSTGRES_DATABASE'),
   username: configService.getOrThrow('POSTGRES_USER'),
   password: configService.getOrThrow('POSTGRES_PASSWORD'),
-  synchronize: configService.getOrThrow('POSTGRES_SYNCHRONIZE'),
+  // See dtabase.module.ts — POSTGRES_SYNCHRONIZE is a raw env string and
+  // must be compared explicitly, or the string 'false' evaluates truthy.
+  synchronize: configService.getOrThrow('POSTGRES_SYNCHRONIZE') === 'true',
   migrations: ['./libs/common/src/database/migrations/*.ts'],
   entities: databaseEntities,
 });

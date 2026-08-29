@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 
 import { ConfiguredJwtModule } from '@app/common/jwt/configured-jwt.module';
@@ -20,6 +21,15 @@ import { OutfitLogModule } from './outfit-log/outfit-log.module';
         './libs/common/src/jwt/.env',
         './apps/media-storage/.env',
       ],
+    }),
+    // Registered exactly once: ThrottlerModule is @Global(), so every
+    // ThrottlerModule.forRoot() call anywhere in the module tree overwrites
+    // the previous one — the last registration silently wins for every route
+    // guarded by a bare ThrottlerGuard. Per-route policies are expressed with
+    // @Throttle({ default: { ttl, limit } }) against this single 'default'
+    // throttler.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60000, limit: 30 }],
     }),
     ConfiguredJwtModule,
     WardrobeModule,

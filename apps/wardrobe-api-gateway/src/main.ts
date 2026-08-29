@@ -9,11 +9,14 @@ import { AuthGuard } from './auth/guards';
 
 async function bootstrap() {
   const app = await NestFactory.create(WardrobeApiGatewayModule);
-  app.useGlobalPipes(new ValidationPipe());
 
-  const jwtService = app.get(JwtService);
-  const reflector = app.get(Reflector);
-  app.useGlobalGuards(new AuthGuard(reflector, jwtService));
+  const configService = app.get(ConfigService);
+
+  app.enableCors({
+    origin: configService.get('CORS_ORIGINS')?.split(',') ?? true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -23,7 +26,10 @@ async function bootstrap() {
     }),
   );
 
-  const configService = app.get(ConfigService);
+  const jwtService = app.get(JwtService);
+  const reflector = app.get(Reflector);
+  app.useGlobalGuards(new AuthGuard(reflector, jwtService));
+
   await app.listen(configService.get('PORT'));
 }
 

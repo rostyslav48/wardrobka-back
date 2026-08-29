@@ -58,3 +58,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # AI Tooling
 .claude/
+.e2e-cache/
+
+# e2e
+test-results/
+playwright-report/
+.e2e-cache/

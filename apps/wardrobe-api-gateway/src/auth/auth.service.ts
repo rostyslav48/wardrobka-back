@@ -11,6 +11,7 @@ import {
 
 import { CLIENT_PROXY_SERVICE } from '../constants';
 import { AUTH_REQUESTS } from '@app/auth/constants';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Injectable()
 export class AuthService {
@@ -26,15 +27,19 @@ export class AuthService {
     return this.authClient.send(AUTH_REQUESTS.signup, request);
   }
 
-  getProfile() {
-    return this.authClient.send(AUTH_REQUESTS.getProfile, undefined);
+  getProfile(user: UserAccountPreview) {
+    return this.authClient.send(AUTH_REQUESTS.getProfile, undefined, user);
   }
 
-  updateProfile(request: UpdateProfileRequest) {
-    return this.authClient.send(AUTH_REQUESTS.updateProfile, request);
+  updateProfile(request: UpdateProfileRequest, user: UserAccountPreview) {
+    return this.authClient.send(AUTH_REQUESTS.updateProfile, request, user);
   }
 
-  upsertPushToken(request: UpsertPushTokenRequest) {
-    return this.authClient.send(AUTH_REQUESTS.upsertPushToken, request);
+  upsertPushToken(request: UpsertPushTokenRequest, user: UserAccountPreview) {
+    return this.authClient.send(
+      AUTH_REQUESTS.upsertPushToken,
+      request,
+      user,
+    );
   }
 }

@@ -24,9 +24,6 @@ export class WardrobeItemPreviewDto {
   status: ItemStatus;
 
   @Expose()
-  favorite: boolean;
-
-  @Expose({ name: 'favourite' })
   favourite: boolean;
 
   @Expose()

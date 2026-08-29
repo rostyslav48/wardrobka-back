@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -22,6 +23,7 @@ export class AssistantOutfitSuggestionEntity {
       onDelete: 'CASCADE',
     },
   )
+  @JoinColumn({ name: 'session_id' })
   session: AssistantSessionEntity;
 
   @Column({ type: 'text' })
@@ -33,6 +35,6 @@ export class AssistantOutfitSuggestionEntity {
   @Column({ name: 'extra_metadata', type: 'jsonb', nullable: true })
   extraMetadata?: Record<string, any>;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { RpcException } from '@nestjs/microservices';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 
 import {
   OutfitLogEntity,
   OutfitLogItemEntity,
+  WardrobeItemEntity,
 } from '@app/common/database/entities/wardrobe';
 import {
   CreateOutfitLogRequestDto,
@@ -21,6 +22,8 @@ export class OutfitLogService {
     private readonly outfitLogRepository: Repository<OutfitLogEntity>,
     @InjectRepository(OutfitLogItemEntity)
     private readonly outfitLogItemRepository: Repository<OutfitLogItemEntity>,
+    @InjectRepository(WardrobeItemEntity)
+    private readonly wardrobeItemRepository: Repository<WardrobeItemEntity>,
   ) {}
 
   async findAll(accountId: number, limit?: number): Promise<OutfitLogDto[]> {
@@ -60,7 +63,11 @@ export class OutfitLogService {
     });
 
     const savedLog = await this.outfitLogRepository.save(log);
-    savedLog.items = await this.replaceItems(savedLog.id, dto.wardrobeItemIds);
+    savedLog.items = await this.replaceItems(
+      savedLog.id,
+      dto.wardrobeItemIds,
+      accountId,
+    );
 
     return plainToInstance(OutfitLogDto, this.toDto(savedLog), {
       excludeExtraneousValues: true,
@@ -87,7 +94,7 @@ export class OutfitLogService {
     }
 
     if (dto.wardrobeItemIds !== undefined) {
-      log.items = await this.replaceItems(id, dto.wardrobeItemIds);
+      log.items = await this.replaceItems(id, dto.wardrobeItemIds, accountId);
     }
 
     const saved = await this.outfitLogRepository.save(log);
@@ -97,20 +104,42 @@ export class OutfitLogService {
     });
   }
 
-  async delete(id: string, accountId: number): Promise<void> {
+  async delete(
+    id: string,
+    accountId: number,
+  ): Promise<{ success: true }> {
     await this.outfitLogRepository.findOneByOrFail({ id, accountId });
     await this.outfitLogItemRepository.delete({ outfitLogId: id });
     await this.outfitLogRepository.delete({ id });
+
+    // The RMQ response observable must emit something — a handler that
+    // resolves void/undefined completes the client's observable with no
+    // emission, and Nest's lastValueFrom throws EmptyError — see BUG-012.
+    return { success: true };
   }
 
   private async replaceItems(
     outfitLogId: string,
     wardrobeItemIds: number[],
+    accountId: number,
   ): Promise<OutfitLogItemEntity[]> {
     await this.outfitLogItemRepository.delete({ outfitLogId });
 
     if (!wardrobeItemIds.length) {
       return [];
+    }
+
+    const owned = await this.wardrobeItemRepository.find({
+      where: { id: In(wardrobeItemIds), accountId },
+    });
+    const ownedIds = new Set(owned.map((item) => item.id));
+    const foreignIds = wardrobeItemIds.filter((id) => !ownedIds.has(id));
+
+    if (foreignIds.length) {
+      throw new RpcException({
+        message: `wardrobeItemIds must reference items you own: ${foreignIds.join(', ')}`,
+        statusCode: 400,
+      });
     }
 
     const items = wardrobeItemIds.map((wardrobeItemId) =>

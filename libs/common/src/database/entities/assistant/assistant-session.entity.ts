@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -21,12 +22,13 @@ export class AssistantSessionEntity {
   @ManyToOne(() => UserAccountEntity, (account) => account.assistantSessions, {
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'account_id' })
   account: UserAccountEntity;
 
   @Column({ length: 255 })
   topic: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @OneToMany(() => AssistantMessageEntity, (message) => message.session)

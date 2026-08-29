@@ -11,6 +11,7 @@ import {
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
 import { CLIENT_PROXY_SERVICE } from '../constants';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Injectable()
 export class WardrobeService {
@@ -18,18 +19,22 @@ export class WardrobeService {
     @Inject(CLIENT_PROXY_SERVICE) private wardrobeClient: ClientProxyService,
   ) {}
 
-  public findAll(filters: FindManyWardrobeItemsRequestDto) {
+  public findAll(
+    filters: FindManyWardrobeItemsRequestDto,
+    user: UserAccountPreview,
+  ) {
     return firstValueFrom(
-      this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, filters),
+      this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, filters, user),
     );
   }
 
-  public findOne(id: number) {
-    return this.wardrobeClient.send(WARDROBE_REQUESTS.findOne, id);
+  public findOne(id: number, user: UserAccountPreview) {
+    return this.wardrobeClient.send(WARDROBE_REQUESTS.findOne, id, user);
   }
 
   public create(
     dto: CreateWardrobeItemRequestDto,
+    user: UserAccountPreview,
     image?: Express.Multer.File,
   ) {
     const preparedImage = image
@@ -40,16 +45,21 @@ export class WardrobeService {
       : null;
 
     return firstValueFrom(
-      this.wardrobeClient.send(WARDROBE_REQUESTS.create, {
-        dto,
-        image: preparedImage,
-      }),
+      this.wardrobeClient.send(
+        WARDROBE_REQUESTS.create,
+        {
+          dto,
+          image: preparedImage,
+        },
+        user,
+      ),
     );
   }
 
   public update(
     id: number,
     dto: UpdateWardrobeItemRequestDto,
+    user: UserAccountPreview,
     image?: Express.Multer.File,
   ) {
     const preparedImage = image
@@ -59,14 +69,18 @@ export class WardrobeService {
         }
       : null;
 
-    return this.wardrobeClient.send(WARDROBE_REQUESTS.update, {
-      id,
-      dto,
-      image: preparedImage,
-    });
+    return this.wardrobeClient.send(
+      WARDROBE_REQUESTS.update,
+      {
+        id,
+        dto,
+        image: preparedImage,
+      },
+      user,
+    );
   }
 
-  public delete(id: number) {
-    return this.wardrobeClient.send(WARDROBE_REQUESTS.delete, id);
+  public delete(id: number, user: UserAccountPreview) {
+    return this.wardrobeClient.send(WARDROBE_REQUESTS.delete, id, user);
   }
 }

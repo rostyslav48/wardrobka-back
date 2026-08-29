@@ -17,12 +17,15 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/wardrobka-back/test/jest-e2e.json",
+    "test:e2e": "playwright test",
     "typeorm": "ts-node ./node_modules/typeorm/cli",
     "typeorm:create-migration": "npm run typeorm migration:create ./libs/common/src/database/migrations/$npm_config_name",
     "typeorm:generate-migration": "npm run typeorm migration:generate ./libs/common/src/database/migrations/$npm_config_name -- -d ./libs/common/src/database/typeOrm.config.ts",
     "typeorm:migrate": "npm run typeorm migration:run -- -d ./libs/common/src/database/typeOrm.config.ts",
-    "typeorm:rollback": "npm run typeorm migration:revert -- -d ./libs/common/src/database/typeOrm.config.ts"
+    "typeorm:rollback": "npm run typeorm migration:revert -- -d ./libs/common/src/database/typeOrm.config.ts",
+    "db:bootstrap": "ts-node ./libs/common/src/database/ensure-database.ts && npm run typeorm:migrate",
+    "test:e2e:api": "playwright test",
+    "test:e2e:api:report": "playwright show-report"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.810.0",
@@ -59,6 +62,7 @@
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
+    "@playwright/test": "^1.62.1",
     "@types/bcryptjs": "^3.0.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.2",
@@ -97,7 +101,8 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "roots": [
-      "<rootDir>/apps/"
+      "<rootDir>/apps/",
+      "<rootDir>/libs/"
     ],
     "moduleNameMapper": {
       "^@app/common(|/.*)$": "<rootDir>/libs/common/src/$1",
