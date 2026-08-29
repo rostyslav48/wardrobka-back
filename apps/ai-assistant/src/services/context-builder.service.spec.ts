@@ -237,6 +237,31 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
     ]);
   });
 
+  it('skips a fetch that times out (AbortError) with a warning and never hangs or throws', async () => {
+    fetchMock.mockRejectedValue(
+      Object.assign(new Error('The operation was aborted'), {
+        name: 'AbortError',
+      }),
+    );
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/never-responds.jpg',
+    ]);
+
+    expect(result).toEqual([]);
+  });
+
+  it('passes an AbortSignal with a bounded timeout to every fetch', async () => {
+    fetchMock.mockResolvedValue(okResponse(pngBytes));
+
+    await service.fetchReferenceImageParts([
+      'https://signed.example.com/one.png',
+    ]);
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('returns an empty array when no urls are given', async () => {
     const result = await service.fetchReferenceImageParts([]);
     expect(result).toEqual([]);

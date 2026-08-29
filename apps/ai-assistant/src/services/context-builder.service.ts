@@ -30,6 +30,7 @@ import { WeatherContext } from '../types/weather-context.type';
 const MAX_ACTIVE_ITEMS_IN_CONTEXT = 50;
 const MAX_REFERENCE_IMAGES = 5;
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+const REFERENCE_IMAGE_FETCH_TIMEOUT_MS = 5000;
 
 export interface RecentlyWornEntry {
   date: string;
@@ -242,7 +243,9 @@ export class ContextBuilderService {
     url: string,
   ): Promise<ReferenceImagePart | null> {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(REFERENCE_IMAGE_FETCH_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         this.logger.warn(
