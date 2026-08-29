@@ -32,6 +32,6 @@ export class OutfitLogEntity {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

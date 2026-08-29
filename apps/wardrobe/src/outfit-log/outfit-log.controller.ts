@@ -69,8 +69,10 @@ export class OutfitLogController {
   async delete(
     @Ctx() context: RmqContext,
     @Body() { user, data }: RequestType<string>,
-  ): Promise<void> {
-    await this.outfitLogService.delete(data, user.id);
+  ): Promise<{ success: true }> {
+    const result = await this.outfitLogService.delete(data, user.id);
     this.rmqService.ack(context);
+
+    return result;
   }
 }

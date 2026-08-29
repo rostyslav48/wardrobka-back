@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
+  IsInt,
   IsOptional,
   IsString,
   MaxLength,
@@ -24,10 +25,12 @@ export class ChatRequestDto {
   @IsOptional()
   @IsArray()
   @ArrayUnique()
+  @IsInt({ each: true })
   contextItemIds?: number[];
 
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(5)
+  @IsString({ each: true })
   referenceImageKeys?: string[];
 }

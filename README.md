@@ -30,6 +30,15 @@ You must configure the `.env` files for each microservice before running the pla
 4. **`apps/wardrobe/.env` & `apps/auth/.env`**:
    Needs Postgres connection variants and queue definitions.
 
+Two more `.env` files are shared across services rather than living under `apps/*`, and are easy to miss because nothing under `apps/*/.env.example` inlines their variables (each affected app's `.env.example` only carries a comment pointing at them):
+
+5. **`libs/common/src/database/.env`**:
+   `POSTGRES_*` connection variables, read by every service that talks to Postgres (`wardrobe`, `auth`, `ai-assistant`).
+6. **`libs/common/src/jwt/.env`**:
+   `JWT_SECRET_KEY` and related JWT config, read by `auth` and `wardrobe-api-gateway`.
+
+Copy both from their `.env.example` alongside the app-level files above — the stack will not boot without them.
+
 ### Starting the Project (Docker Compose)
 The entire stack (microservices + Postgres + RabbitMQ) is wired within the root `docker-compose.yml`.
 
@@ -37,7 +46,7 @@ Start all containers natively:
 ```bash
 docker-compose up --build
 ```
-This builds each service (using their respective `DockerFile`) and boots up Postgres and RabbitMQ first.
+This builds each service (using their respective `DockerFile`) and boots up Postgres and RabbitMQ first. A one-shot `migrate` service then runs before `wardrobe`, `auth` and `ai-assistant` start: it creates the app's Postgres database if it does not already exist (handles both a fresh volume and a pre-existing one — no manual `docker compose down -v` needed) and applies all pending TypeORM migrations. `POSTGRES_SYNCHRONIZE` stays `false`; schema only ever changes through migrations, never through auto-sync.
 
 Services map local directories to `/usr/src/app` inside the container for hot-reloading (`npm run start:dev [service]`).
 
@@ -61,6 +70,12 @@ To manage schemas, use standard TypeORM CLI commands configured in `package.json
 npm run typeorm:generate-migration --name=MigrationName
 npm run typeorm:migrate
 ```
+
+Running outside Docker (services on the host against a containerised Postgres), create the database and apply migrations in one step with:
+```bash
+npm run db:bootstrap
+```
+This is the same command the `migrate` compose service runs; it is idempotent, so re-running it on a database that already exists and has all migrations applied is a no-op.
 
 ## 🧪 Testing
 

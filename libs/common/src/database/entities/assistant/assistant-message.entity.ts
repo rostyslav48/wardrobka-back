@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -18,6 +19,7 @@ export class AssistantMessageEntity {
   @ManyToOne(() => AssistantSessionEntity, (session) => session.messages, {
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'session_id' })
   session: AssistantSessionEntity;
 
   @Column({ length: 20 })
@@ -29,6 +31,6 @@ export class AssistantMessageEntity {
   @Column({ type: 'jsonb', nullable: true })
   attachments?: string[];
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

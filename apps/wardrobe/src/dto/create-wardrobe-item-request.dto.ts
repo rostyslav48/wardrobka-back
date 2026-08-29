@@ -34,7 +34,7 @@ export class CreateWardrobeItemRequestDto {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true')
+  @Transform(({ value }) => value === true || value === 'true')
   favourite?: boolean = false;
 
   @IsEnum(FitType)

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
 } from '@nestjs/common';
@@ -16,36 +17,48 @@ import {
 } from '@app/wardrobe/dto';
 
 import { OutfitLogService } from './outfit-log.service';
+import { CurrentUser } from '@app/wardrobe-api-gateway/auth/decorators';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('outfit-log')
 export class OutfitLogController {
   constructor(private readonly outfitLogService: OutfitLogService) {}
 
   @Get()
-  findAll(): Observable<OutfitLogDto[]> {
-    return this.outfitLogService.findAll();
+  findAll(@CurrentUser() user: UserAccountPreview): Observable<OutfitLogDto[]> {
+    return this.outfitLogService.findAll(user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string): Observable<OutfitLogDto> {
-    return this.outfitLogService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: UserAccountPreview,
+  ): Observable<OutfitLogDto> {
+    return this.outfitLogService.findOne(id, user);
   }
 
   @Post()
-  create(@Body() dto: CreateOutfitLogRequestDto): Observable<OutfitLogDto> {
-    return this.outfitLogService.create(dto);
+  create(
+    @Body() dto: CreateOutfitLogRequestDto,
+    @CurrentUser() user: UserAccountPreview,
+  ): Observable<OutfitLogDto> {
+    return this.outfitLogService.create(dto, user);
   }
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateOutfitLogRequestDto,
+    @CurrentUser() user: UserAccountPreview,
   ): Observable<OutfitLogDto> {
-    return this.outfitLogService.update(id, dto);
+    return this.outfitLogService.update(id, dto, user);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string): Observable<void> {
-    return this.outfitLogService.delete(id);
+  delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: UserAccountPreview,
+  ): Observable<{ success: true }> {
+    return this.outfitLogService.delete(id, user);
   }
 }

@@ -9,6 +9,12 @@ import { UserAccountPreview } from '../users/types';
 
 import { CreateUserAccountRequest, LoginRequest } from '../dto';
 
+// A valid bcrypt hash of an unusable password. Compared against when no
+// account exists so a missing user and a wrong password take the same time
+// and return the same result — otherwise login leaks account existence.
+const DUMMY_PASSWORD_HASH =
+  '$2b$10$nBrOsli2dgf7VBBp9Zih1OsKsLATgMygCpUd6.voP7//aiLLf.yKi';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -18,12 +24,16 @@ export class AuthService {
   ) {}
 
   public async validateUser(input: LoginRequest): Promise<UserAccountPreview> {
-    const user = await this.usersService.findUserByEmail(input.email);
+    const user = await this.usersService
+      .findUserByEmail(input.email)
+      .catch(() => null);
 
-    if (
-      user &&
-      (await this.bcryptService.comparePassword(input.password, user.password))
-    ) {
+    const passwordMatches = await this.bcryptService.comparePassword(
+      input.password,
+      user?.password ?? DUMMY_PASSWORD_HASH,
+    );
+
+    if (user && passwordMatches) {
       return {
         id: user.id,
         name: user.name,
@@ -54,8 +64,9 @@ export class AuthService {
       password: hashPassword,
     });
 
-    delete user.password;
-
-    return this.signIn(user);
+    // Build the response from named fields rather than spreading the entity —
+    // the entity also carries `protectedData` and `expoPushToken`, which must
+    // never be serialised back to the client (see BUG-006).
+    return this.signIn({ id: user.id, name: user.name, email: user.email });
   }
 }

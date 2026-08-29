@@ -9,6 +9,7 @@ import {
   OutfitLogDto,
   UpdateOutfitLogRequestDto,
 } from '@app/wardrobe/dto';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Injectable()
 export class OutfitLogService {
@@ -16,23 +17,33 @@ export class OutfitLogService {
     @Inject(CLIENT_PROXY_SERVICE) private readonly client: ClientProxyService,
   ) {}
 
-  findAll(): Observable<OutfitLogDto[]> {
-    return this.client.send(OUTFIT_LOG_REQUESTS.findMany, {});
+  findAll(user: UserAccountPreview): Observable<OutfitLogDto[]> {
+    return this.client.send(OUTFIT_LOG_REQUESTS.findMany, {}, user);
   }
 
-  findOne(id: string): Observable<OutfitLogDto> {
-    return this.client.send(OUTFIT_LOG_REQUESTS.findOne, id);
+  findOne(id: string, user: UserAccountPreview): Observable<OutfitLogDto> {
+    return this.client.send(OUTFIT_LOG_REQUESTS.findOne, id, user);
   }
 
-  create(dto: CreateOutfitLogRequestDto): Observable<OutfitLogDto> {
-    return this.client.send(OUTFIT_LOG_REQUESTS.create, dto);
+  create(
+    dto: CreateOutfitLogRequestDto,
+    user: UserAccountPreview,
+  ): Observable<OutfitLogDto> {
+    return this.client.send(OUTFIT_LOG_REQUESTS.create, dto, user);
   }
 
-  update(id: string, dto: UpdateOutfitLogRequestDto): Observable<OutfitLogDto> {
-    return this.client.send(OUTFIT_LOG_REQUESTS.update, { id, dto });
+  update(
+    id: string,
+    dto: UpdateOutfitLogRequestDto,
+    user: UserAccountPreview,
+  ): Observable<OutfitLogDto> {
+    return this.client.send(OUTFIT_LOG_REQUESTS.update, { id, dto }, user);
   }
 
-  delete(id: string): Observable<void> {
-    return this.client.send(OUTFIT_LOG_REQUESTS.delete, id);
+  delete(
+    id: string,
+    user: UserAccountPreview,
+  ): Observable<{ success: true }> {
+    return this.client.send(OUTFIT_LOG_REQUESTS.delete, id, user);
   }
 }

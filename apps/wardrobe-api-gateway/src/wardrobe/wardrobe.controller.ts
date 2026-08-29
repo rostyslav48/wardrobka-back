@@ -24,8 +24,10 @@ import {
   CreateWardrobeItemRequestDto,
   UpdateWardrobeItemRequestDto,
 } from '@app/wardrobe/dto';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ImageUploadValidationPipe } from '@app/wardrobe-api-gateway/wardrobe/validators';
+import { CurrentUser } from '@app/wardrobe-api-gateway/auth/decorators';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('wardrobe')
 export class WardrobeController {
@@ -34,39 +36,44 @@ export class WardrobeController {
   @Post()
   @UseInterceptors(FileInterceptor('image'))
   @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { ttl: 5000, limit: 1 } })
   create(
     @Body() createWardrobeDto: CreateWardrobeItemRequestDto,
+    @CurrentUser() user: UserAccountPreview,
     @UploadedFile(ImageUploadValidationPipe)
     image?: Express.Multer.File,
   ) {
-    return this.wardrobeService.create(createWardrobeDto, image);
+    return this.wardrobeService.create(createWardrobeDto, user, image);
   }
 
   @Get()
-  findAll(@Query() filters: FindManyWardrobeItemsRequestDto) {
-    return this.wardrobeService.findAll(filters);
+  findAll(
+    @Query() filters: FindManyWardrobeItemsRequestDto,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.wardrobeService.findAll(filters, user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.wardrobeService.findOne(+id);
+  findOne(@Param('id') id: string, @CurrentUser() user: UserAccountPreview) {
+    return this.wardrobeService.findOne(+id, user);
   }
 
-  // @UseGuards(ThrottlerGuard)
   @Patch(':id')
   @UseInterceptors(FileInterceptor('image'))
   update(
     @Param('id') id: string,
     @Body()
     updateWardrobeDto: UpdateWardrobeItemRequestDto,
+    @CurrentUser() user: UserAccountPreview,
     @UploadedFile(ImageUploadValidationPipe)
     image?: Express.Multer.File,
   ) {
-    return this.wardrobeService.update(+id, updateWardrobeDto, image);
+    return this.wardrobeService.update(+id, updateWardrobeDto, user, image);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.wardrobeService.delete(+id);
+  delete(@Param('id') id: string, @CurrentUser() user: UserAccountPreview) {
+    return this.wardrobeService.delete(+id, user);
   }
 }

@@ -3,13 +3,47 @@ services:
     image: postgres:15-alpine
     environment:
       POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: wardrobe_assistant
     ports:
-      - "5432:5432"
+      - "${PG_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   rabbitmq:
     image: rabbitmq
     ports:
-      - '5672:5672'
+      - '${RMQ_HOST_PORT:-5672}:5672'
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: ./apps/wardrobe/DockerFile
+      target: development
+    command: npm run db:bootstrap
+    env_file:
+      - ./libs/common/src/database/.env
+    environment:
+      # typeOrm.config.ts (used by both the bootstrap script and the
+      # migration CLI) reads POSTGRES_HOST, not POSTGRES_DOCKER_HOST — this
+      # override is what points it at the compose network instead of
+      # localhost.
+      POSTGRES_HOST: postgresDb
+    depends_on:
+      postgresDb:
+        condition: service_healthy
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
 
   wardrobe-api-gateway:
     build:
@@ -19,13 +53,15 @@ services:
     command: npm run start:dev wardrobe-api-gateway
     env_file:
       - ./apps/wardrobe-api-gateway/.env
+      - ./libs/common/src/jwt/.env
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
     ports:
-      - '3000:3000'
+      - '${API_HOST_PORT:-3000}:3000'
 
   wardrobe:
     build:
@@ -35,9 +71,16 @@ services:
     command: npm run start:dev wardrobe
     env_file:
       - ./apps/wardrobe/.env
+      - ./libs/common/src/database/.env
     depends_on:
-      - rabbitmq
-      - wardrobe-api-gateway
+      rabbitmq:
+        condition: service_healthy
+      postgresDb:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      wardrobe-api-gateway:
+        condition: service_started
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
@@ -50,9 +93,17 @@ services:
     command: npm run start:dev auth
     env_file:
       - ./apps/auth/.env
+      - ./libs/common/src/database/.env
+      - ./libs/common/src/jwt/.env
     depends_on:
-      - rabbitmq
-      - wardrobe-api-gateway
+      rabbitmq:
+        condition: service_healthy
+      postgresDb:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      wardrobe-api-gateway:
+        condition: service_started
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
@@ -66,8 +117,10 @@ services:
     env_file:
       - ./apps/media-storage/.env
     depends_on:
-      - rabbitmq
-      - wardrobe-api-gateway
+      rabbitmq:
+        condition: service_healthy
+      wardrobe-api-gateway:
+        condition: service_started
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
@@ -80,9 +133,19 @@ services:
     command: npm run start:dev ai-assistant
     env_file:
       - ./apps/ai-assistant/.env
+      - ./libs/common/src/database/.env
     depends_on:
-      - rabbitmq
-      - wardrobe-api-gateway
+      rabbitmq:
+        condition: service_healthy
+      postgresDb:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      wardrobe-api-gateway:
+        condition: service_started
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
+
+volumes:
+  postgres_data:

@@ -3,7 +3,7 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 
-import { Public } from './decorators';
+import { CurrentUser, Public } from './decorators';
 
 import {
   CreateUserAccountRequest,
@@ -11,6 +11,7 @@ import {
   UpdateProfileRequest,
   UpsertPushTokenRequest,
 } from '@app/auth/dto';
+import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('auth')
 export class AuthController {
@@ -33,17 +34,23 @@ export class AuthController {
   }
 
   @Get('profile')
-  getProfile() {
-    return this.authService.getProfile();
+  getProfile(@CurrentUser() user: UserAccountPreview) {
+    return this.authService.getProfile(user);
   }
 
   @Patch('profile')
-  updateProfile(@Body() request: UpdateProfileRequest) {
-    return this.authService.updateProfile(request);
+  updateProfile(
+    @Body() request: UpdateProfileRequest,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.authService.updateProfile(request, user);
   }
 
   @Patch('push-token')
-  upsertPushToken(@Body() request: UpsertPushTokenRequest) {
-    return this.authService.upsertPushToken(request);
+  upsertPushToken(
+    @Body() request: UpsertPushTokenRequest,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.authService.upsertPushToken(request, user);
   }
 }

@@ -6,18 +6,16 @@ import { UserAccountPreview } from '@app/auth/users/types';
 
 @Injectable()
 export class ClientProxyService {
-  private user: UserAccountPreview = null;
-
   constructor(private readonly clientProxy: ClientProxy) {}
 
-  public setUser(user: UserAccountPreview) {
-    this.user = user;
-  }
-
-  public send<T>(pattern: string, payload: T): Observable<any> {
+  public send<T>(
+    pattern: string,
+    payload: T,
+    user: UserAccountPreview | null = null,
+  ): Observable<any> {
     return this.clientProxy.send(pattern, {
       data: payload,
-      user: this.user,
+      user,
     });
   }
 }
