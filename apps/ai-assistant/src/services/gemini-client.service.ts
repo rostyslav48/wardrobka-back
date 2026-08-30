@@ -1,20 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  GenerateContentResult,
-  GenerativeModel,
-  GoogleGenerativeAI,
-} from '@google/generative-ai';
+import { Content, GenerateContentResponse, GoogleGenAI } from '@google/genai';
 
 import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
 import { RecentlyWornEntry } from './context-builder.service';
 
 import { WeatherContext } from '../types/weather-context.type';
 
+export interface ReferenceImagePart {
+  mimeType: string;
+  data: string;
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'model';
+  text: string;
+}
+
 interface ChatContext {
   prompt: string;
+  history: ChatHistoryMessage[];
   wardrobeItems: WardrobeItemDto[];
-  referenceImageUrls: string[];
+  referenceImages: ReferenceImagePart[];
   activeWardrobeItems?: WardrobeItemPreviewDto[];
   weather?: WeatherContext | null;
   recentlyWorn?: RecentlyWornEntry[];
@@ -30,69 +37,88 @@ interface OutfitContext {
   recentlyWorn?: RecentlyWornEntry[];
 }
 
+const SYSTEM_INSTRUCTION = [
+  'You are an AI wardrobe assistant helping users make outfit decisions.',
+  'When recommending items to wear, only recommend items present in the wardrobe context you are given — do not invent wardrobe items the user does not own.',
+  'You may still discuss and refer back to anything the user has told you earlier in the conversation, even if it is not in the wardrobe context.',
+  'Use the weather forecast, season and recently-worn history when they are relevant to the request.',
+  'Keep responses concise and practical.',
+].join('\n');
+
 @Injectable()
 export class GeminiClientService {
   private readonly logger = new Logger(GeminiClientService.name);
-  private readonly model: GenerativeModel;
+  private readonly client: GoogleGenAI;
+  private readonly modelId: string;
 
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.getOrThrow<string>('GEMINI_API_KEY');
-    const modelId = this.configService.get<string>(
+    this.modelId = this.configService.get<string>(
       'GEMINI_MODEL',
       'gemini-2.5-flash',
     );
-    const client = new GoogleGenerativeAI(apiKey);
-    this.model = client.getGenerativeModel({ model: modelId });
+    this.client = new GoogleGenAI({ apiKey });
   }
 
   async generateChatResponse(context: ChatContext): Promise<string> {
-    const prompt = this.composeChatPrompt(context);
-    const result = await this.model.generateContent({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
-    });
+    const contents: Content[] = [
+      ...context.history.map((message) => ({
+        role: message.role,
+        parts: [{ text: message.text }],
+      })),
+      {
+        role: 'user',
+        parts: [
+          { text: this.composeChatUserTurn(context) },
+          ...context.referenceImages.map((image) => ({
+            inlineData: { mimeType: image.mimeType, data: image.data },
+          })),
+        ],
+      },
+    ];
 
-    return this.extractText(result);
+    const startedAt = Date.now();
+    const response = await this.client.models.generateContent({
+      model: this.modelId,
+      contents,
+      config: { systemInstruction: SYSTEM_INSTRUCTION },
+    });
+    this.logUsage('generateChatResponse', response, Date.now() - startedAt);
+
+    return this.extractText(response);
   }
 
   async generateOutfitSummary(context: OutfitContext): Promise<string> {
-    const instruction = this.composeOutfitPrompt(context);
-    const result = await this.model.generateContent({
+    const startedAt = Date.now();
+    const response = await this.client.models.generateContent({
+      model: this.modelId,
       contents: [
         {
           role: 'user',
-          parts: [{ text: instruction }],
+          parts: [{ text: this.composeOutfitPrompt(context) }],
         },
       ],
+      config: { systemInstruction: SYSTEM_INSTRUCTION },
     });
+    this.logUsage('generateOutfitSummary', response, Date.now() - startedAt);
 
-    return this.extractText(result);
+    return this.extractText(response);
   }
 
-  private composeChatPrompt({
+  private composeChatUserTurn({
     prompt,
     wardrobeItems,
-    referenceImageUrls,
     activeWardrobeItems,
     weather,
     recentlyWorn,
   }: ChatContext) {
     const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
-    const imageContext = referenceImageUrls.length
-      ? `Reference images:\n${referenceImageUrls.map((url) => `- ${url}`).join('\n')}`
-      : '';
 
     return [
-      'You are an AI wardrobe assistant helping users make outfit decisions.',
       this.serializeWeather(weather),
       this.serializeActiveItems(activeWardrobeItems),
       this.serializeRecentlyWorn(recentlyWorn),
       wardrobeContext,
-      imageContext,
       'User request:',
       prompt,
     ]
@@ -195,8 +221,21 @@ export class GeminiClientService {
     ].join('\n');
   }
 
-  private extractText(result: GenerateContentResult) {
-    const text = result.response?.text?.() ?? '';
+  private logUsage(
+    operation: string,
+    response: GenerateContentResponse,
+    latencyMs: number,
+  ) {
+    const usage = response.usageMetadata;
+    this.logger.log(
+      `${operation} — promptTokens=${usage?.promptTokenCount ?? 'n/a'} ` +
+        `responseTokens=${usage?.candidatesTokenCount ?? 'n/a'} ` +
+        `latencyMs=${latencyMs}`,
+    );
+  }
+
+  private extractText(response: GenerateContentResponse) {
+    const text = response.text ?? '';
 
     if (!text) {
       this.logger.warn('Empty response received from Gemini');

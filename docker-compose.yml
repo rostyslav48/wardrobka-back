@@ -38,6 +38,12 @@ services:
       # override is what points it at the compose network instead of
       # localhost.
       POSTGRES_HOST: postgresDb
+      # POSTGRES_PORT comes from the same .env, where it is the *host* port so
+      # that processes running outside compose can reach Postgres. Inside the
+      # compose network the server always listens on 5432, so the host value
+      # has to be overridden here or the parallel lanes (which rewrite that
+      # .env to 5441, 5442, ...) fail to connect with ECONNREFUSED.
+      POSTGRES_PORT: 5432
     depends_on:
       postgresDb:
         condition: service_healthy
