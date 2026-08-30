@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 
 import {
@@ -27,7 +27,10 @@ import { AssistantProtectedData } from '../types/protected-data.type';
 import { decryptProtectedData, encryptProtectedData } from '@app/common';
 
 import { ContextBuilderService } from './context-builder.service';
-import { GeminiClientService } from './gemini-client.service';
+import {
+  ChatHistoryMessage,
+  GeminiClientService,
+} from './gemini-client.service';
 import { WebhookQueueService } from './webhook-queue.service';
 
 @Injectable()
@@ -55,10 +58,17 @@ export class ConversationService {
       dto.topic ?? this.deriveTopic(dto.prompt),
     );
 
-    const context = await this.contextBuilder.buildContext(accountPreview, {
-      contextItemIds: dto.contextItemIds,
-      referenceImageKeys: dto.referenceImageKeys,
-    });
+    const [context, history] = await Promise.all([
+      this.contextBuilder.buildContext(accountPreview, {
+        contextItemIds: dto.contextItemIds,
+        referenceImageKeys: dto.referenceImageKeys,
+      }),
+      this.loadChatHistory(session.id),
+    ]);
+
+    const referenceImages = await this.contextBuilder.fetchReferenceImageParts(
+      context.referenceImageUrls,
+    );
 
     await this.messageRepository.save({
       sessionId: session.id,
@@ -69,8 +79,9 @@ export class ConversationService {
 
     const response = await this.geminiClient.generateChatResponse({
       prompt: dto.prompt,
+      history,
       wardrobeItems: context.wardrobeItems,
-      referenceImageUrls: context.referenceImageUrls,
+      referenceImages,
       activeWardrobeItems: context.activeWardrobeItems,
       weather: context.weather,
       recentlyWorn: context.recentlyWorn,
@@ -330,5 +341,25 @@ export class ConversationService {
 
   private deriveTopic(prompt: string) {
     return prompt.length > 60 ? `${prompt.slice(0, 57)}...` : prompt;
+  }
+
+  private async loadChatHistory(
+    sessionId: string,
+  ): Promise<ChatHistoryMessage[]> {
+    const limit = this.configService.get<number>(
+      'AI_HISTORY_MESSAGE_LIMIT',
+      10,
+    );
+
+    const messages = await this.messageRepository.find({
+      where: { sessionId, role: In(['user', 'assistant']) },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+
+    return messages.reverse().map((message) => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      text: message.content,
+    }));
   }
 }
