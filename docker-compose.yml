@@ -147,5 +147,23 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
 
+  logger:
+    build:
+      context: .
+      dockerfile: ./apps/logger/DockerFile
+      target: development
+    command: npm run start:dev logger
+    env_file:
+      - ./apps/logger/.env
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgresDb:
+        condition: service_healthy
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+
 volumes:
   postgres_data:
