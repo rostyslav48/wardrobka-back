@@ -20,6 +20,7 @@ import {
 } from '@app/wardrobe/dto';
 
 import { FileTransfer } from '@app/media-storage/models';
+import { WARDROBE_PREVIEW_SELECT } from '@app/wardrobe/constants';
 
 @Injectable()
 export class WardrobeService {
@@ -55,16 +56,7 @@ export class WardrobeService {
   ): Promise<WardrobeItemPreviewDto[]> {
     const itemsPreview = await this.wardrobeItemRepository.find({
       where: { accountId, ...filters },
-      select: [
-        'id',
-        'name',
-        'img_path',
-        'favourite',
-        'type',
-        'color',
-        'season',
-        'size',
-      ],
+      select: WARDROBE_PREVIEW_SELECT,
     });
 
     const entitiesWithPath = await this.getItemsWithImageUrls(itemsPreview);

@@ -7,6 +7,7 @@ import { UserAccountEntity } from '@app/common/database/entities/auth';
 import {
   OUTFIT_LOG_REQUESTS,
   SWATCHES,
+  WARDROBE_PREVIEW_SELECT,
   WARDROBE_REQUESTS,
 } from '@app/wardrobe/constants';
 
@@ -28,6 +29,19 @@ const makeItem = (
   favorite: overrides.favourite ?? false,
   favourite: overrides.favourite ?? false,
 });
+
+/**
+ * Projects a hand-written fixture down to what actually crosses RMQ:
+ * `WardrobeService.findAll` loads only `WARDROBE_PREVIEW_SELECT`, so any field
+ * outside that list arrives `undefined` however rich the entity is. Specs that
+ * hand-write a full item silently pass while the wire shape is missing a field.
+ */
+const asWirePreview = (item: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(item).filter(([key]) =>
+      (WARDROBE_PREVIEW_SELECT as string[]).includes(key),
+    ),
+  );
 
 describe('ContextBuilderService — tool handlers', () => {
   const account = { id: 42, name: 'Test', email: 't@e.com' };
@@ -579,5 +593,85 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
     const result = await service.fetchReferenceImageParts([]);
     expect(result).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ContextBuilderService — pinned to the findAll select list', () => {
+  const account = { id: 42, name: 'Test', email: 't@e.com' };
+  let wardrobeSend: jest.Mock;
+  let accountRepo: { findOne: jest.Mock };
+  let service: ContextBuilderService;
+
+  beforeEach(() => {
+    wardrobeSend = jest.fn();
+    accountRepo = { findOne: jest.fn() };
+    service = new ContextBuilderService(
+      { send: wardrobeSend } as unknown as ClientProxy,
+      { send: jest.fn() } as unknown as ClientProxy,
+      accountRepo as unknown as Repository<UserAccountEntity>,
+      { getForecast: jest.fn() } as unknown as WeatherService,
+      {
+        get: (_: string, fallback?: unknown) => fallback,
+      } as unknown as ConfigService,
+    );
+  });
+
+  it('populates every search_wardrobe row field from a column findAll selects', async () => {
+    wardrobeSend.mockReturnValue(
+      of([
+        asWirePreview({
+          id: 7,
+          name: 'Navy Blazer',
+          type: 'jacket',
+          color: '#1B2A4A',
+          season: 'winter',
+          status: 'washing',
+          size: 'm',
+          favourite: false,
+        }),
+      ]),
+    );
+
+    const result = (await service.executeTool(
+      'search_wardrobe',
+      {},
+      account,
+    )) as { items: Record<string, unknown>[] };
+    const [row] = result.items;
+
+    // Every key the row exposes must come from a selected column, and must
+    // carry a real value — `status: null` is exactly the drift this pins.
+    for (const [key, value] of Object.entries(row)) {
+      expect(WARDROBE_PREVIEW_SELECT).toContain(key);
+      expect(value).not.toBeNull();
+    }
+
+    expect(row).toEqual({
+      id: 7,
+      name: 'Navy Blazer',
+      type: 'jacket',
+      color: 'Navy',
+      season: 'winter',
+      status: 'washing',
+    });
+  });
+
+  it('counts by status in the seed summary from a column findAll selects', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(
+      of([
+        asWirePreview({ id: 1, type: 'jacket', status: 'washing' }),
+        asWirePreview({ id: 2, type: 'jeans', status: 'active' }),
+      ]),
+    );
+
+    const summary = await service.buildSeedSummary(account);
+    const statusLine = summary
+      .split('\n')
+      .find((line) => line.startsWith('- By status:'));
+
+    expect(statusLine).toContain('washing 1');
+    expect(statusLine).toContain('active 1');
+    expect(statusLine).not.toContain('none');
   });
 });
