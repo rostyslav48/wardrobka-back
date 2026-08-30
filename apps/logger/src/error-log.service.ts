@@ -14,13 +14,35 @@ export class ErrorLogService {
     private readonly errorLogRepository: Repository<ErrorLogEntity>,
   ) {}
 
-  async create(payload: CreateErrorLogDto): Promise<ErrorLogEntity> {
-    const errorLog = this.errorLogRepository.create({
-      ...payload,
-      message: payload.message.slice(0, MAX_TEXT_LENGTH),
-      stack: payload.stack?.slice(0, MAX_TEXT_LENGTH),
-    });
+  async create(payload: CreateErrorLogDto): Promise<void> {
+    const {
+      severity,
+      service,
+      context,
+      message,
+      errorName,
+      statusCode,
+      stack,
+      requestMethod,
+      requestPath,
+      accountId,
+      correlationId,
+      meta,
+    } = payload;
 
-    return this.errorLogRepository.save(errorLog);
+    await this.errorLogRepository.insert({
+      severity,
+      service,
+      context,
+      message: message.slice(0, MAX_TEXT_LENGTH),
+      errorName,
+      statusCode,
+      stack: stack?.slice(0, MAX_TEXT_LENGTH),
+      requestMethod,
+      requestPath,
+      accountId,
+      correlationId,
+      meta,
+    });
   }
 }

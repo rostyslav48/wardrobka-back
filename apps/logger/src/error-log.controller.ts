@@ -1,4 +1,10 @@
-import { Body, Controller, UseFilters } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  UseFilters,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Ctx, EventPattern, RmqContext } from '@nestjs/microservices';
 
 import { MicroserviceExceptionFilter, RmqService } from '@app/common';
@@ -7,6 +13,13 @@ import { CreateErrorLogDto, ERROR_LOG_EVENTS } from '@app/logger';
 import { ErrorLogService } from './error-log.service';
 
 @UseFilters(MicroserviceExceptionFilter)
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }),
+)
 @Controller()
 export class ErrorLogController {
   constructor(
