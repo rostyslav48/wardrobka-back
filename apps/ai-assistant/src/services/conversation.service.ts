@@ -58,33 +58,32 @@ export class ConversationService {
       dto.topic ?? this.deriveTopic(dto.prompt),
     );
 
-    const [context, history] = await Promise.all([
-      this.contextBuilder.buildContext(accountPreview, {
-        contextItemIds: dto.contextItemIds,
-        referenceImageKeys: dto.referenceImageKeys,
-      }),
+    const [referenceImageUrls, history, seedSummary] = await Promise.all([
+      this.contextBuilder.fetchReferenceImageUrls(dto.referenceImageKeys),
       this.loadChatHistory(session.id),
+      this.contextBuilder.buildSeedSummary(accountPreview),
     ]);
 
-    const referenceImages = await this.contextBuilder.fetchReferenceImageParts(
-      context.referenceImageUrls,
-    );
+    const referenceImages =
+      await this.contextBuilder.fetchReferenceImageParts(referenceImageUrls);
 
     await this.messageRepository.save({
       sessionId: session.id,
       role: 'user',
       content: dto.prompt,
-      attachments: context.referenceImageUrls,
+      attachments: referenceImageUrls,
     });
 
     const response = await this.geminiClient.generateChatResponse({
       prompt: dto.prompt,
       history,
-      wardrobeItems: context.wardrobeItems,
       referenceImages,
-      activeWardrobeItems: context.activeWardrobeItems,
-      weather: context.weather,
-      recentlyWorn: context.recentlyWorn,
+      seedSummary,
+      contextItemIds: dto.contextItemIds,
+      // accountId is bound here, not declared as a tool parameter, so the model
+      // cannot address another user's wardrobe whatever arguments it emits.
+      executeTool: (name, args) =>
+        this.contextBuilder.executeTool(name, args, accountPreview),
     });
 
     const assistantMessage = await this.messageRepository.save({
@@ -119,18 +118,25 @@ export class ConversationService {
 
     const accountPreview = await this.getAccountPreview(accountId);
 
-    const context = await this.contextBuilder.buildContext(accountPreview, {
-      contextItemIds: dto.wardrobeItemIds,
-    });
+    // Phase 4 moves this path onto the tool loop as well; until then it fetches
+    // the pieces the deleted prompt-assembly helper used to bundle, minus the
+    // capped active-items dump that went away with the 50-item cap.
+    const [wardrobeItems, weather, recentlyWorn] = await Promise.all([
+      this.contextBuilder.fetchWardrobeItems(
+        accountPreview,
+        dto.wardrobeItemIds,
+      ),
+      this.contextBuilder.fetchWeatherForAccount(accountId),
+      this.contextBuilder.fetchRecentlyWorn(accountPreview),
+    ]);
 
     const summary = await this.geminiClient.generateOutfitSummary({
       occasion: dto.occasion,
       styleHint: dto.styleHint,
       season: dto.season,
-      wardrobeItems: context.wardrobeItems,
-      activeWardrobeItems: context.activeWardrobeItems,
-      weather: context.weather,
-      recentlyWorn: context.recentlyWorn,
+      wardrobeItems,
+      weather,
+      recentlyWorn,
     });
 
     await this.messageRepository.save({

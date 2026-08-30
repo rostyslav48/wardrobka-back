@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,7 +14,6 @@ import {
   OUTFIT_LOG_REQUESTS,
   WARDROBE_REQUESTS,
 } from '@app/wardrobe/constants';
-import { ItemStatus } from '@app/wardrobe/enums';
 import { MEDIA_STORAGE_REQUESTS } from '@app/media-storage/constants/requests';
 import { ItemPath } from '@app/media-storage/models';
 import {
@@ -26,11 +26,13 @@ import { UserAccountEntity } from '@app/common/database/entities/auth';
 import { WeatherService } from './weather.service';
 import { getCurrentSeason } from './current-season.util';
 import { WeatherContext } from '../types/weather-context.type';
+import { TOOL_NAMES, colorHexToLabel, colorLabelToHex } from './wardrobe-tools';
 
-const MAX_ACTIVE_ITEMS_IN_CONTEXT = 50;
 const MAX_REFERENCE_IMAGES = 5;
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const REFERENCE_IMAGE_FETCH_TIMEOUT_MS = 5000;
+const DEFAULT_TOOL_ROW_LIMIT = 100;
+const DEFAULT_RECENT_LOG_LIMIT = 7;
 
 export interface RecentlyWornEntry {
   date: string;
@@ -42,17 +44,13 @@ export interface ReferenceImagePart {
   data: string;
 }
 
-export interface AiSystemContext {
-  wardrobeItems: WardrobeItemDto[];
-  referenceImageUrls: string[];
-  activeWardrobeItems: WardrobeItemPreviewDto[];
-  weather: WeatherContext | null;
-  recentlyWorn: RecentlyWornEntry[];
-}
+/** What a tool handler hands back to the model as its `functionResponse`. */
+export type ToolResult = Record<string, unknown>;
 
 @Injectable()
 export class ContextBuilderService {
   private readonly logger = new Logger(ContextBuilderService.name);
+  private readonly toolRowLimit: number;
 
   constructor(
     @Inject(WARDROBE_SERVICE) private readonly wardrobeClient: ClientProxy,
@@ -60,36 +58,243 @@ export class ContextBuilderService {
     @InjectRepository(UserAccountEntity)
     private readonly accountRepository: Repository<UserAccountEntity>,
     private readonly weatherService: WeatherService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.toolRowLimit = Number(
+      this.configService.get<number>(
+        'AI_TOOL_ROW_LIMIT',
+        DEFAULT_TOOL_ROW_LIMIT,
+      ),
+    );
+  }
 
-  async buildContext(
+  /**
+   * Executes one model-requested tool call. `account` is supplied by the
+   * caller, never by the model, so every handler is scoped to the signed-in
+   * user regardless of what arguments the model emits. An RPC failure comes
+   * back as an `error` field rather than a throw — the loop must be able to
+   * carry on and answer with what it has.
+   */
+  async executeTool(
+    name: string,
+    args: Record<string, unknown>,
     account: UserAccountPreview,
-    options: {
-      contextItemIds?: number[];
-      referenceImageKeys?: string[];
-    },
-  ): Promise<AiSystemContext> {
-    const [
-      wardrobeItems,
-      referenceImageUrls,
-      activeWardrobeItems,
-      weather,
-      recentlyWorn,
-    ] = await Promise.all([
-      this.fetchWardrobeItems(account, options.contextItemIds),
-      this.fetchReferenceImageUrls(options.referenceImageKeys),
-      this.fetchActiveSeasonalItems(account),
-      this.fetchWeatherForAccount(account.id),
-      this.fetchRecentlyWorn(account),
-    ]);
+  ): Promise<ToolResult> {
+    try {
+      switch (name) {
+        case TOOL_NAMES.searchWardrobe:
+          return await this.searchWardrobe(account, args);
+        case TOOL_NAMES.getItemDetails:
+          return await this.getItemDetails(account, args);
+        case TOOL_NAMES.getWeather:
+          return await this.getWeather(account, args);
+        case TOOL_NAMES.getRecentOutfits:
+          return await this.getRecentOutfits(account, args);
+        default:
+          return { error: `Unknown tool "${name}".` };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Tool ${name} failed for account ${account.id}: ${message}`,
+      );
+
+      return { error: `Tool "${name}" failed: ${message}` };
+    }
+  }
+
+  private async searchWardrobe(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const filter: Record<string, unknown> = {};
+
+    for (const key of [
+      'type',
+      'season',
+      'status',
+      'style',
+      'fit_type',
+      'material',
+      'brand',
+      'size',
+      'favourite',
+    ]) {
+      if (args[key] !== undefined && args[key] !== null) {
+        filter[key] = args[key];
+      }
+    }
+
+    if (typeof args.color === 'string') {
+      const hex = colorLabelToHex(args.color);
+
+      if (!hex) {
+        return {
+          error: `Unknown colour "${args.color}". Pick one of the palette labels in the schema.`,
+        };
+      }
+
+      filter.color = hex;
+    }
+
+    const items =
+      ((await firstValueFrom(
+        this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
+          data: filter,
+          user: account,
+        }),
+      )) as WardrobeItemPreviewDto[]) ?? [];
+
+    const requested = this.positiveInt(args.limit) ?? this.toolRowLimit;
+    const cap = Math.min(requested, this.toolRowLimit);
+    const rows = items.slice(0, cap).map((item) => ({
+      id: item.id,
+      name: item.name || item.type,
+      type: item.type,
+      color: colorHexToLabel(item.color) ?? item.color ?? null,
+      season: item.season ?? null,
+      status: item.status ?? null,
+    }));
 
     return {
-      wardrobeItems,
-      referenceImageUrls,
-      activeWardrobeItems,
-      weather,
-      recentlyWorn,
+      items: rows,
+      total: items.length,
+      truncated: items.length > rows.length,
     };
+  }
+
+  private async getItemDetails(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const ids = Array.isArray(args.ids)
+      ? args.ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
+
+    if (!ids.length) {
+      return { items: [], total: 0, truncated: false };
+    }
+
+    const capped = ids.slice(0, this.toolRowLimit);
+    const items = await this.fetchWardrobeItems(account, capped);
+
+    return {
+      items,
+      total: items.length,
+      truncated: ids.length > capped.length,
+    };
+  }
+
+  private async getWeather(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const weather = await this.fetchWeatherForAccount(account.id);
+
+    if (!weather) {
+      return {
+        weather: null,
+        note: 'No forecast available — the account has no city set or the weather provider is unavailable.',
+      };
+    }
+
+    const days = this.positiveInt(args.days);
+
+    return {
+      weather: days
+        ? { ...weather, dailyForecast: weather.dailyForecast.slice(0, days) }
+        : weather,
+    };
+  }
+
+  private async getRecentOutfits(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const limit = Math.min(
+      this.positiveInt(args.limit) ?? DEFAULT_RECENT_LOG_LIMIT,
+      this.toolRowLimit,
+    );
+    const outfits = await this.fetchRecentlyWorn(account, limit);
+
+    return { outfits, total: outfits.length };
+  }
+
+  /**
+   * The one block of context sent unconditionally: enough for the model to know
+   * the shape of the wardrobe without spending a round trip discovering it.
+   * The calendar season is labelled a hint, not a filter — it can contradict
+   * the weather, and `get_weather` is the authority.
+   */
+  async buildSeedSummary(account: UserAccountPreview): Promise<string> {
+    const [items, city] = await Promise.all([
+      this.fetchAllItemsForSummary(account),
+      this.fetchAccountCity(account.id),
+    ]);
+
+    const byType = this.tally(items.map((item) => String(item.type)));
+    const byStatus = this.tally(items.map((item) => String(item.status)));
+
+    return [
+      'Wardrobe summary (orientation only — call the tools for the actual items):',
+      `- Total items: ${items.length}`,
+      `- By type: ${this.formatTally(byType)}`,
+      `- By status: ${this.formatTally(byStatus)}`,
+      `- Account city: ${city ?? 'not set'}`,
+      `- Calendar season hint: ${getCurrentSeason()} (a hint from today's date, not a filter — check get_weather before relying on it)`,
+    ].join('\n');
+  }
+
+  private async fetchAllItemsForSummary(
+    account: UserAccountPreview,
+  ): Promise<WardrobeItemPreviewDto[]> {
+    try {
+      return (
+        ((await firstValueFrom(
+          this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
+            data: {},
+            user: account,
+          }),
+        )) as WardrobeItemPreviewDto[]) ?? []
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to build wardrobe summary for account ${account.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
+  }
+
+  private tally(values: string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+
+    for (const value of values) {
+      if (!value || value === 'undefined' || value === 'null') {
+        continue;
+      }
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+
+    return counts;
+  }
+
+  private formatTally(counts: Map<string, number>): string {
+    if (!counts.size) {
+      return 'none';
+    }
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([label, count]) => `${label} ${count}`)
+      .join(', ');
+  }
+
+  private positiveInt(value: unknown): number | null {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
   }
 
   async fetchWardrobeItems(account: UserAccountPreview, ids?: number[]) {
@@ -105,71 +310,35 @@ export class ContextBuilderService {
     ) as Promise<WardrobeItemDto[]>;
   }
 
-  private async fetchActiveSeasonalItems(
-    account: UserAccountPreview,
-  ): Promise<WardrobeItemPreviewDto[]> {
-    const season = getCurrentSeason();
-
-    try {
-      const items = (await firstValueFrom(
-        this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
-          data: { status: ItemStatus.Active, season },
-          user: account,
-        }),
-      )) as WardrobeItemPreviewDto[];
-
-      return this.capByFavouritesFirst(items ?? []);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to fetch active wardrobe items for account ${account.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return [];
-    }
-  }
-
-  private capByFavouritesFirst(
-    items: WardrobeItemPreviewDto[],
-  ): WardrobeItemPreviewDto[] {
-    if (items.length <= MAX_ACTIVE_ITEMS_IN_CONTEXT) {
-      return items;
-    }
-
-    const sorted = [...items].sort((a, b) => {
-      if (a.favourite !== b.favourite) {
-        return a.favourite ? -1 : 1;
-      }
-      return (b.id ?? 0) - (a.id ?? 0);
-    });
-
-    return sorted.slice(0, MAX_ACTIVE_ITEMS_IN_CONTEXT);
-  }
-
-  private async fetchWeatherForAccount(
-    accountId: number,
-  ): Promise<WeatherContext | null> {
+  private async fetchAccountCity(accountId: number): Promise<string | null> {
     const account = await this.accountRepository.findOne({
       where: { id: accountId },
       select: ['id', 'city'],
     });
 
-    if (!account?.city) {
+    return account?.city ?? null;
+  }
+
+  async fetchWeatherForAccount(
+    accountId: number,
+  ): Promise<WeatherContext | null> {
+    const city = await this.fetchAccountCity(accountId);
+
+    if (!city) {
       return null;
     }
 
-    return firstValueFrom(this.weatherService.getForecast(account.city));
+    return firstValueFrom(this.weatherService.getForecast(city));
   }
 
   async fetchRecentlyWorn(
     account: UserAccountPreview,
+    limit = DEFAULT_RECENT_LOG_LIMIT,
   ): Promise<RecentlyWornEntry[]> {
-    const RECENT_LOG_LIMIT = 7;
-
     try {
       const logs = (await firstValueFrom(
         this.wardrobeClient.send(OUTFIT_LOG_REQUESTS.findMany, {
-          data: { limit: RECENT_LOG_LIMIT },
+          data: { limit },
           user: account,
         }),
       )) as OutfitLogDto[];
@@ -203,7 +372,7 @@ export class ContextBuilderService {
     }
   }
 
-  private async fetchReferenceImageUrls(keys?: string[]) {
+  async fetchReferenceImageUrls(keys?: string[]) {
     if (!keys?.length) {
       return [];
     }
