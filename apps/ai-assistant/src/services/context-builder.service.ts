@@ -263,9 +263,14 @@ export class ContextBuilderService {
         return null;
       }
 
-      const mimeType =
-        response.headers.get('content-type')?.split(';')[0]?.trim() ||
-        this.sniffImageMimeType(buffer);
+      const headerType = response.headers
+        .get('content-type')
+        ?.split(';')[0]
+        ?.trim()
+        .toLowerCase();
+      const mimeType = headerType?.startsWith('image/')
+        ? headerType
+        : this.sniffImageMimeType(buffer);
 
       if (!mimeType) {
         this.logger.warn(

@@ -179,6 +179,18 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
     expect(result[0].mimeType).toBe('image/png');
   });
 
+  it('sniffs mimeType from magic bytes when content-type is a non-image type', async () => {
+    fetchMock.mockResolvedValue(
+      okResponse(pngBytes, { 'content-type': 'application/octet-stream' }),
+    );
+
+    const result = await service.fetchReferenceImageParts([
+      'https://signed.example.com/a.png',
+    ]);
+
+    expect(result[0].mimeType).toBe('image/png');
+  });
+
   it('caps at 5 images and never fetches more than that', async () => {
     fetchMock.mockResolvedValue(
       okResponse(jpegBytes, { 'content-type': 'image/jpeg' }),

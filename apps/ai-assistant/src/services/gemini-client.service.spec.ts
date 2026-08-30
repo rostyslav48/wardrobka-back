@@ -51,6 +51,28 @@ describe('GeminiClientService', () => {
     ).toBe(true);
   });
 
+  it('scopes the no-invented-items rule to recommendations and explicitly allows recalling earlier conversation facts', async () => {
+    await service.generateChatResponse({
+      prompt: 'what colour is it',
+      history: [
+        { role: 'user', text: 'my favourite jacket is emerald green' },
+        { role: 'model', text: 'Got it.' },
+      ],
+      wardrobeItems: [],
+      referenceImages: [],
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    expect(call.config.systemInstruction).toEqual(
+      expect.stringContaining('When recommending items to wear'),
+    );
+    expect(call.config.systemInstruction).toEqual(
+      expect.stringContaining(
+        'discuss and refer back to anything the user has told you earlier',
+      ),
+    );
+  });
+
   it('replays history as contents with user/model roles, ending with the current turn', async () => {
     await service.generateChatResponse({
       prompt: 'and in blue?',
