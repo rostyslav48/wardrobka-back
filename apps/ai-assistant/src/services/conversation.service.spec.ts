@@ -240,8 +240,10 @@ describe('ConversationService — handleChat history replay', () => {
   let messageRepo: { find: jest.Mock; save: jest.Mock };
   let accountRepo: { findOne: jest.Mock };
   let contextBuilder: {
-    buildContext: jest.Mock;
+    fetchReferenceImageUrls: jest.Mock;
     fetchReferenceImageParts: jest.Mock;
+    buildSeedSummary: jest.Mock;
+    executeTool: jest.Mock;
   };
   let geminiClient: { generateChatResponse: jest.Mock };
   let webhookQueueService: { scheduleJob: jest.Mock };
@@ -266,14 +268,10 @@ describe('ConversationService — handleChat history replay', () => {
         .mockResolvedValue({ id: accountId, name: 'Test', email: 't@e.com' }),
     };
     contextBuilder = {
-      buildContext: jest.fn().mockResolvedValue({
-        wardrobeItems: [],
-        referenceImageUrls: [],
-        activeWardrobeItems: [],
-        weather: null,
-        recentlyWorn: [],
-      }),
+      fetchReferenceImageUrls: jest.fn().mockResolvedValue([]),
       fetchReferenceImageParts: jest.fn().mockResolvedValue([]),
+      buildSeedSummary: jest.fn().mockResolvedValue('Wardrobe summary'),
+      executeTool: jest.fn().mockResolvedValue({ items: [] }),
     };
     geminiClient = {
       generateChatResponse: jest.fn().mockResolvedValue('assistant reply'),
@@ -353,13 +351,9 @@ describe('ConversationService — handleChat history replay', () => {
   });
 
   it('resolves reference images and never passes an image URL as prompt text', async () => {
-    contextBuilder.buildContext.mockResolvedValue({
-      wardrobeItems: [],
-      referenceImageUrls: ['https://signed.example.com/a.jpg'],
-      activeWardrobeItems: [],
-      weather: null,
-      recentlyWorn: [],
-    });
+    contextBuilder.fetchReferenceImageUrls.mockResolvedValue([
+      'https://signed.example.com/a.jpg',
+    ]);
     contextBuilder.fetchReferenceImageParts.mockResolvedValue([
       { mimeType: 'image/jpeg', data: 'ZmFrZQ==' },
     ]);
@@ -378,5 +372,35 @@ describe('ConversationService — handleChat history replay', () => {
       { mimeType: 'image/jpeg', data: 'ZmFrZQ==' },
     ]);
     expect(call.prompt).not.toContain('https://signed.example.com/a.jpg');
+  });
+
+  it('passes the seed summary and a tool executor instead of pre-fetched context', async () => {
+    await service.handleChat(accountId, {
+      prompt: 'what should I wear',
+      sessionId,
+    } as any);
+
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.seedSummary).toBe('Wardrobe summary');
+    expect(typeof call.executeTool).toBe('function');
+    expect(call).not.toHaveProperty('wardrobeItems');
+    expect(call).not.toHaveProperty('activeWardrobeItems');
+    expect(call).not.toHaveProperty('weather');
+  });
+
+  it('binds the signed-in account into the tool executor', async () => {
+    await service.handleChat(accountId, {
+      prompt: 'what should I wear',
+      sessionId,
+    } as any);
+
+    const { executeTool } = geminiClient.generateChatResponse.mock.calls[0][0];
+    await executeTool('search_wardrobe', { type: 'jacket' });
+
+    expect(contextBuilder.executeTool).toHaveBeenCalledWith(
+      'search_wardrobe',
+      { type: 'jacket' },
+      { id: accountId, name: 'Test', email: 't@e.com' },
+    );
   });
 });
