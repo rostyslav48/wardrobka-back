@@ -119,11 +119,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
+    const plain =
+      typeof exception === 'object' && exception !== null
+        ? (exception as Record<string, unknown>)
+        : undefined;
+
     this.log('fatal', {
       statusCode: 500,
-      message: exception instanceof Error ? exception.message : 'Unknown error',
+      message:
+        exception instanceof Error
+          ? exception.message
+          : typeof plain?.message === 'string'
+            ? plain.message
+            : 'Unknown error',
       errorName: exception instanceof Error ? exception.name : undefined,
       stack: exception instanceof Error ? exception.stack : undefined,
+      meta:
+        exception instanceof Error
+          ? undefined
+          : { raw: plain ?? String(exception) },
       request,
     });
     response.status(500).json(GENERIC_SERVER_ERROR_BODY);
@@ -136,10 +150,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message: string;
       errorName?: string;
       stack?: string;
+      meta?: Record<string, unknown>;
       request: RequestWithUser;
     },
   ): void {
-    const { statusCode, message, errorName, stack, request } = details;
+    const { statusCode, message, errorName, stack, meta, request } = details;
 
     this.errorLogger[severity]({
       context: AllExceptionsFilter.name,
@@ -147,6 +162,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       errorName,
       statusCode,
       stack,
+      meta,
       requestMethod: request.method,
       requestPath: request.originalUrl ?? request.url,
       accountId: request.user?.id,

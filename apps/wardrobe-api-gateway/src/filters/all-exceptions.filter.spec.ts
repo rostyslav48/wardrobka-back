@@ -167,13 +167,42 @@ describe('AllExceptionsFilter', () => {
     );
   });
 
-  it('handles a thrown non-Error value as fatal without throwing', () => {
+  it('handles a thrown non-Error value as fatal without throwing, preserving it in meta', () => {
     const host = makeHost(makeRequest());
 
     expect(() => filter.catch('just a string', host)).not.toThrow();
 
     expect(errorLogger.fatal).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'Unknown error', stack: undefined }),
+      expect.objectContaining({
+        message: 'Unknown error',
+        stack: undefined,
+        meta: { raw: 'just a string' },
+      }),
+    );
+  });
+
+  it("falls back to a plain object payload's message and stashes it in meta when it has no statusCode", () => {
+    // Shape of @nestjs/microservices' BaseRpcExceptionFilter.handleUnknownError output,
+    // which is neither an HttpException, a microservice-shaped {statusCode,...} object,
+    // nor an Error, so it previously fell into the fatal catch-all contentless.
+    const host = makeHost(makeRequest());
+    const exception = { status: 'error', message: 'Internal server error' };
+
+    filter.catch(exception, host);
+
+    const response = host.switchToHttp().getResponse();
+    expect(response.status).toHaveBeenCalledWith(500);
+    expect(response.json).toHaveBeenCalledWith({
+      statusCode: 500,
+      message: 'Internal server error',
+    });
+
+    expect(errorLogger.fatal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 500,
+        message: 'Internal server error',
+        meta: { raw: exception },
+      }),
     );
   });
 
