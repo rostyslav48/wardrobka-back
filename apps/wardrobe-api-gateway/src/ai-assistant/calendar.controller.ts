@@ -12,10 +12,7 @@ import type { Response } from 'express';
 
 import { CALENDAR_FALLBACK_APP_REDIRECT } from '@app/ai-assistant/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
-import {
-  CurrentUser,
-  Public,
-} from '@app/wardrobe-api-gateway/auth/decorators';
+import { CurrentUser, Public } from '@app/wardrobe-api-gateway/auth/decorators';
 
 import { CalendarService } from './calendar.service';
 

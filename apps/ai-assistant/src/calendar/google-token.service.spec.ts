@@ -126,7 +126,9 @@ describe('GoogleTokenService', () => {
         // 30s of life left: still valid at Google, already stale to us.
         credential({ accessTokenExpiresAt: new Date(Date.now() + 30_000) }),
       );
-      httpPost.mockReturnValue(of({ access_token: 'at-new', expires_in: 3599 }));
+      httpPost.mockReturnValue(
+        of({ access_token: 'at-new', expires_in: 3599 }),
+      );
 
       const before = Date.now();
       await expect(service.getAccessToken(42)).resolves.toBe('at-new');
@@ -158,7 +160,9 @@ describe('GoogleTokenService', () => {
           accessTokenExpiresAt: null,
         }),
       );
-      httpPost.mockReturnValue(of({ access_token: 'at-new', expires_in: 3599 }));
+      httpPost.mockReturnValue(
+        of({ access_token: 'at-new', expires_in: 3599 }),
+      );
 
       await expect(service.getAccessToken(42)).resolves.toBe('at-new');
     });

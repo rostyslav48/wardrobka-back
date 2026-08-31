@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 
-import { CALENDAR_REQUESTS } from '@app/ai-assistant/constants';
+import {
+  CALENDAR_CALLBACK_TIMEOUT_MS,
+  CALENDAR_REQUESTS,
+} from '@app/ai-assistant/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
 
 import { CLIENT_PROXY_SERVICE } from '../constants';
@@ -29,11 +32,17 @@ export class CalendarService {
 
   // No user: Google's browser arrives here unauthenticated and the signed
   // `state` carries the account id.
+  //
+  // Bounded: a send() to a queue whose consumer is down never emits and never
+  // errors, so the controller's catch — and with it the fallback redirect —
+  // only fires if the wait is capped here.
   handleCallback(
     query: CalendarCallbackQuery,
   ): Promise<{ redirectUrl: string }> {
     return firstValueFrom(
-      this.aiClient.send(CALENDAR_REQUESTS.handleCallback, query),
+      this.aiClient
+        .send(CALENDAR_REQUESTS.handleCallback, query)
+        .pipe(timeout(CALENDAR_CALLBACK_TIMEOUT_MS)),
     );
   }
 

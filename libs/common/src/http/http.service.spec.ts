@@ -28,10 +28,13 @@ describe('HttpService', () => {
 
   it('form-encodes a URLSearchParams body instead of JSON-stringifying it', async () => {
     await firstValueFrom(
-      service.post('https://oauth2.googleapis.com/token', new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: 'r-1',
-      })),
+      service.post(
+        'https://oauth2.googleapis.com/token',
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: 'r-1',
+        }),
+      ),
     );
 
     expect(lastHeaders()['Content-Type']).toBe(

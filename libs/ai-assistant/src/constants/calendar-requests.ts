@@ -13,3 +13,14 @@ export const CALENDAR_REQUESTS = {
  */
 export const CALENDAR_FALLBACK_APP_REDIRECT =
   'wardrobeassistantfront://calendar-connected';
+
+/**
+ * Upper bound on the callback's RMQ round trip. An RMQ `send()` to a queue
+ * with no live consumer never errors — it publishes and waits for a reply that
+ * never comes — so without this the gateway would hold the browser open
+ * instead of redirecting, and the fallback above would be unreachable.
+ *
+ * Sized above ai-assistant's own 10000 ms Google token timeout so a slow but
+ * working exchange still wins the race and reports its real outcome.
+ */
+export const CALENDAR_CALLBACK_TIMEOUT_MS = 15000;

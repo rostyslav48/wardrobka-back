@@ -18,7 +18,8 @@ const CONFIG: Record<string, string> = {
   PROTECTED_DATA_SECRET: SECRET,
   GOOGLE_OAUTH_CLIENT_ID: 'client-id-123.apps.googleusercontent.com',
   GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret-xyz',
-  GOOGLE_OAUTH_REDIRECT_URI: 'https://api.example.test/calendar/google/callback',
+  GOOGLE_OAUTH_REDIRECT_URI:
+    'https://api.example.test/calendar/google/callback',
   GOOGLE_OAUTH_APP_REDIRECT: 'wardrobeassistantfront://calendar-connected',
 };
 
@@ -44,7 +45,10 @@ describe('GoogleOAuthService', () => {
     httpPost = jest.fn();
     storeCredential = jest.fn().mockResolvedValue(undefined);
     revokeToken = jest.fn().mockResolvedValue(undefined);
-    tokenService = { storeCredential, revokeToken } as unknown as GoogleTokenService;
+    tokenService = {
+      storeCredential,
+      revokeToken,
+    } as unknown as GoogleTokenService;
 
     return new GoogleOAuthService(
       buildConfig(overrides) as never,
@@ -72,9 +76,7 @@ describe('GoogleOAuthService', () => {
         'https://accounts.google.com/o/oauth2/v2/auth',
       );
       expect(params.get('client_id')).toBe(CONFIG.GOOGLE_OAUTH_CLIENT_ID);
-      expect(params.get('redirect_uri')).toBe(
-        CONFIG.GOOGLE_OAUTH_REDIRECT_URI,
-      );
+      expect(params.get('redirect_uri')).toBe(CONFIG.GOOGLE_OAUTH_REDIRECT_URI);
       expect(params.get('response_type')).toBe('code');
       expect(params.get('scope')).toBe(
         'https://www.googleapis.com/auth/calendar.events.readonly',
@@ -91,7 +93,9 @@ describe('GoogleOAuthService', () => {
     });
 
     it('rejects with 503 rather than a half-built URL when unconfigured', () => {
-      const unconfigured = build({ GOOGLE_OAUTH_CLIENT_ID: undefined as never });
+      const unconfigured = build({
+        GOOGLE_OAUTH_CLIENT_ID: undefined as never,
+      });
       expect(() => unconfigured.buildAuthUrl(7)).toThrow(
         ServiceUnavailableException,
       );
@@ -127,11 +131,15 @@ describe('GoogleOAuthService', () => {
         'utf8',
       ).toString('base64url');
 
-      expect(service.verifyState(`${forged}.${state.split('.')[1]}`)).toBeNull();
+      expect(
+        service.verifyState(`${forged}.${state.split('.')[1]}`),
+      ).toBeNull();
     });
 
     it('rejects a state signed with a different secret', () => {
-      const other = build({ PROTECTED_DATA_SECRET: 'a-different-secret-value' });
+      const other = build({
+        PROTECTED_DATA_SECRET: 'a-different-secret-value',
+      });
       expect(service.verifyState(other.mintState(42))).toBeNull();
     });
 

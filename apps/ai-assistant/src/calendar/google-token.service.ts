@@ -234,7 +234,10 @@ export class GoogleTokenService {
   }
 
   private async recordError(accountId: number, reason: string): Promise<void> {
-    await this.credentialRepository.update({ accountId }, { lastError: reason });
+    await this.credentialRepository.update(
+      { accountId },
+      { lastError: reason },
+    );
   }
 
   private expiryFrom(expiresInSeconds?: number): Date | null {

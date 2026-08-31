@@ -82,7 +82,10 @@ export class GoogleOAuthService {
    * credential.
    */
   mintState(accountId: number): string {
-    const payload: StatePayload = { a: accountId, e: Date.now() + STATE_TTL_MS };
+    const payload: StatePayload = {
+      a: accountId,
+      e: Date.now() + STATE_TTL_MS,
+    };
     const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString(
       'base64url',
     );
