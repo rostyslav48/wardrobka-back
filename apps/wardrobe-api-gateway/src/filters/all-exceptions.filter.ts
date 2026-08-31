@@ -18,6 +18,10 @@ interface MicroserviceErrorResponse {
   error?: string;
 }
 
+interface ErrorLikeWithStatusCode extends Error {
+  statusCode: number;
+}
+
 const GENERIC_SERVER_ERROR_BODY = {
   statusCode: 500,
   message: 'Internal server error',
@@ -32,6 +36,23 @@ function isMicroserviceErrorResponse(
     !(exception instanceof Error) &&
     typeof (exception as Record<string, unknown>).statusCode === 'number' &&
     'message' in exception
+  );
+}
+
+/**
+ * Covers errors from libraries such as `http-errors` (e.g. body-parser's
+ * PayloadTooLargeError) that carry a `statusCode` but are real `Error`
+ * instances, not `HttpException`s. Nest's own BaseExceptionFilter treats
+ * these the same as an HttpException (isHttpError check); without this
+ * branch they fell through to the fatal/500 catch-all.
+ */
+function isErrorLikeWithStatusCode(
+  exception: unknown,
+): exception is ErrorLikeWithStatusCode {
+  return (
+    exception instanceof Error &&
+    typeof (exception as unknown as Record<string, unknown>).statusCode ===
+      'number'
   );
 }
 
@@ -82,6 +103,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
         request,
       });
       response.status(statusCode).json(exception);
+      return;
+    }
+
+    if (isErrorLikeWithStatusCode(exception)) {
+      const { statusCode, message, name, stack } = exception;
+      this.log(statusCode >= 500 ? 'error' : 'warn', {
+        statusCode,
+        message,
+        errorName: name,
+        stack,
+        request,
+      });
+      response.status(statusCode).json({ statusCode, message });
       return;
     }
 

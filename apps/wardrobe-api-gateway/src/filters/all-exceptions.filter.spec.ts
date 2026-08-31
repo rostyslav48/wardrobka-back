@@ -118,6 +118,32 @@ describe('AllExceptionsFilter', () => {
     expect(errorLogger.warn).not.toHaveBeenCalled();
   });
 
+  it('treats an http-errors-style Error (e.g. PayloadTooLargeError) as a handled error, not fatal', () => {
+    const host = makeHost(makeRequest());
+    const exception = Object.assign(new Error('request entity too large'), {
+      statusCode: 413,
+    });
+
+    filter.catch(exception, host);
+
+    const response = host.switchToHttp().getResponse();
+    expect(response.status).toHaveBeenCalledWith(413);
+    expect(response.json).toHaveBeenCalledWith({
+      statusCode: 413,
+      message: 'request entity too large',
+    });
+
+    expect(errorLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 413,
+        message: 'request entity too large',
+        errorName: 'Error',
+      }),
+    );
+    expect(errorLogger.error).not.toHaveBeenCalled();
+    expect(errorLogger.fatal).not.toHaveBeenCalled();
+  });
+
   it('treats anything else as fatal, responds with a generic 500 body and never leaks the stack', () => {
     const host = makeHost(makeRequest());
     const exception = new Error('unexpected crash');
