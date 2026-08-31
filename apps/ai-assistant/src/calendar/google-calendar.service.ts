@@ -121,6 +121,20 @@ export class GoogleCalendarService {
     };
   }
 
+  /**
+   * Drops every cached entry for `accountId`, regardless of `daysAhead`.
+   * Called on disconnect so a revoked account cannot keep serving events out
+   * of the cache for the rest of the TTL window.
+   */
+  invalidateAccount(accountId: number): void {
+    const prefix = `${accountId}:`;
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
   private clampDaysAhead(daysAhead?: number): number {
     if (daysAhead === undefined || !Number.isFinite(daysAhead)) {
       return CALENDAR_DAYS_AHEAD_DEFAULT;

@@ -67,6 +67,7 @@ export class CalendarController {
     @Body() { user }: RequestType<void>,
   ): Promise<CalendarStatusResponse> {
     await this.googleTokenService.disconnect(user.id);
+    this.googleCalendarService.invalidateAccount(user.id);
     this.rmqService.ack(context);
 
     return { status: 'disconnected' };

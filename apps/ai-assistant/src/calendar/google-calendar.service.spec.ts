@@ -347,4 +347,50 @@ describe('GoogleCalendarService', () => {
       expect(httpGet).not.toHaveBeenCalled();
     });
   });
+
+  describe('invalidateAccount', () => {
+    it('drops cached events for the account so the next call re-fetches', async () => {
+      httpGet.mockReturnValue(
+        of({
+          items: [
+            {
+              id: 'evt-4',
+              summary: 'Standup',
+              start: { dateTime: '2026-01-02T09:00:00Z' },
+              end: { dateTime: '2026-01-02T09:15:00Z' },
+              status: 'confirmed',
+              eventType: 'default',
+              attendees: [],
+            },
+          ],
+        }),
+      );
+
+      await service.getOccasions(1, 2);
+      expect(httpGet).toHaveBeenCalledTimes(1);
+
+      service.invalidateAccount(1);
+      getAccessToken.mockResolvedValue(null);
+
+      const result = await service.getOccasions(1, 2);
+
+      expect(result).toEqual({ status: 'disconnected', occasions: [] });
+      expect(httpGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not affect other accounts sharing a similar prefix', async () => {
+      httpGet.mockReturnValue(of({ items: [] }));
+
+      await service.getEvents(1, 2);
+      await service.getEvents(11, 2);
+      expect(httpGet).toHaveBeenCalledTimes(2);
+
+      service.invalidateAccount(1);
+
+      await service.getEvents(1, 2);
+      await service.getEvents(11, 2);
+
+      expect(httpGet).toHaveBeenCalledTimes(3);
+    });
+  });
 });
