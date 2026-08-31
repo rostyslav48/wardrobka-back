@@ -7,4 +7,5 @@ export const AI_ASSISTANT_REQUESTS = {
   getRecentSuggestions: 'ai-assistant/get-recent-suggestions',
   getOutfitSuggestions: 'ai-assistant/get-outfit-suggestions',
   deleteOutfitSuggestion: 'ai-assistant/delete-outfit-suggestion',
+  analyzeImage: 'ai-assistant/analyze-image',
 };

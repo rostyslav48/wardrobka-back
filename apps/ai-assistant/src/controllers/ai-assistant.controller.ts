@@ -1,7 +1,10 @@
 import { Body, Controller, UseFilters } from '@nestjs/common';
 import { Ctx, MessagePattern, RmqContext } from '@nestjs/microservices';
+import { plainToInstance } from 'class-transformer';
 
 import {
+  AnalyzeImageRequestDto,
+  AnalyzedImageAttributesDto,
   ChatRequestDto,
   GenerateOutfitRequestDto,
   UpsertWebhookKeyDto,
@@ -11,14 +14,32 @@ import { MicroserviceExceptionFilter, RmqService } from '@app/common';
 import { RequestType } from '@app/common/types';
 
 import { ConversationService } from '../services/conversation.service';
+import { ImageAnalyzerService } from '../services/image-analyzer.service';
 
 @UseFilters(MicroserviceExceptionFilter)
 @Controller()
 export class AiAssistantController {
   constructor(
     private readonly conversationService: ConversationService,
+    private readonly imageAnalyzerService: ImageAnalyzerService,
     private readonly rmqService: RmqService,
   ) {}
+
+  @MessagePattern(AI_ASSISTANT_REQUESTS.analyzeImage)
+  async analyzeImage(
+    @Ctx() context: RmqContext,
+    @Body() { data }: RequestType<AnalyzeImageRequestDto>,
+  ) {
+    const attributes = await this.imageAnalyzerService.analyze(
+      data.fileBase64,
+      data.mimeType,
+    );
+    this.rmqService.ack(context);
+
+    return plainToInstance(AnalyzedImageAttributesDto, attributes, {
+      excludeExtraneousValues: true,
+    });
+  }
 
   @MessagePattern(AI_ASSISTANT_REQUESTS.enqueueChat)
   async enqueueChat(

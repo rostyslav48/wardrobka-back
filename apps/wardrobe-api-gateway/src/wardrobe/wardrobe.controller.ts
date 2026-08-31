@@ -76,4 +76,14 @@ export class WardrobeController {
   delete(@Param('id') id: string, @CurrentUser() user: UserAccountPreview) {
     return this.wardrobeService.delete(+id, user);
   }
+
+  @Post('analyze-image')
+  @UseInterceptors(FileInterceptor('image'))
+  analyzeImage(
+    @CurrentUser() user: UserAccountPreview,
+    @UploadedFile(ImageUploadValidationPipe)
+    image?: Express.Multer.File,
+  ) {
+    return this.wardrobeService.analyzeImage(image, user);
+  }
 }
