@@ -360,6 +360,18 @@ describe('ContextBuilderService — tool handlers', () => {
 
       expect(result).toEqual({ outfits: [], total: 0 });
     });
+
+    it('returns an empty list rather than throwing when the RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = await service.executeTool(
+        'get_recent_outfits',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({ outfits: [], total: 0 });
+    });
   });
 
   describe('propose_outfit', () => {
@@ -438,6 +450,18 @@ describe('ContextBuilderService — tool handlers', () => {
       )) as { itemIds: number[] };
 
       expect(result.itemIds).toEqual([1]);
+    });
+
+    it('returns an error result rather than throwing when the ownership-check RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [1], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('rmq down');
     });
   });
 
