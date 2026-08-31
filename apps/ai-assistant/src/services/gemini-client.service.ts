@@ -9,11 +9,7 @@ import {
   Part,
 } from '@google/genai';
 
-import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
-import { RecentlyWornEntry } from './context-builder.service';
 import { TOOL_DECLARATIONS, TOOL_NAMES } from './wardrobe-tools';
-
-import { WeatherContext } from '../types/weather-context.type';
 
 export interface ReferenceImagePart {
   mimeType: string;
@@ -52,16 +48,6 @@ interface ChatContext {
   /** Item ids the user attached to this message, if any. */
   contextItemIds?: number[];
   executeTool: ToolExecutor;
-}
-
-interface OutfitContext {
-  occasion: string;
-  styleHint?: string;
-  season?: string;
-  wardrobeItems: WardrobeItemDto[];
-  activeWardrobeItems?: WardrobeItemPreviewDto[];
-  weather?: WeatherContext | null;
-  recentlyWorn?: RecentlyWornEntry[];
 }
 
 const DEFAULT_MAX_TOOL_ROUNDS = 4;
@@ -308,23 +294,6 @@ export class GeminiClientService {
     return `${name}:${JSON.stringify(ordered)}`;
   }
 
-  async generateOutfitSummary(context: OutfitContext): Promise<string> {
-    const startedAt = Date.now();
-    const response = await this.client.models.generateContent({
-      model: this.modelId,
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: this.composeOutfitPrompt(context) }],
-        },
-      ],
-      config: { systemInstruction: SYSTEM_INSTRUCTION },
-    });
-    this.logUsage('generateOutfitSummary', response, Date.now() - startedAt);
-
-    return this.extractText(response);
-  }
-
   private composeChatUserTurn({
     prompt,
     seedSummary,
@@ -340,101 +309,6 @@ export class GeminiClientService {
     ]
       .filter(Boolean)
       .join('\n\n');
-  }
-
-  private composeOutfitPrompt({
-    occasion,
-    styleHint,
-    season,
-    wardrobeItems,
-    activeWardrobeItems,
-    weather,
-    recentlyWorn,
-  }: OutfitContext) {
-    const wardrobeContext = this.serializeWardrobeItems(wardrobeItems);
-
-    return [
-      'Generate an outfit suggestion summary using the provided wardrobe items.',
-      `Occasion: ${occasion}`,
-      season ? `Season: ${season}` : null,
-      styleHint ? `Style hint: ${styleHint}` : null,
-      this.serializeWeather(weather),
-      this.serializeActiveItems(activeWardrobeItems),
-      this.serializeRecentlyWorn(recentlyWorn),
-      wardrobeContext,
-      'Respond with a concise paragraph and highlight which pieces to combine.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  private serializeWeather(weather?: WeatherContext | null): string {
-    if (!weather) {
-      return '';
-    }
-
-    const lines = [
-      `Weather forecast for ${weather.city} — tomorrow:`,
-      `- ${weather.temperatureCelsius}°C, ${weather.condition}`,
-      `- Humidity: ${weather.humidity}%`,
-      `- Wind: ${weather.windSpeed} m/s`,
-    ];
-
-    if (weather.dailyForecast?.length) {
-      lines.push('Upcoming daily forecast:');
-      for (const day of weather.dailyForecast) {
-        lines.push(
-          `  • ${day.date}: ${day.temperatureCelsius}°C, ${day.condition}`,
-        );
-      }
-    }
-
-    return lines.join('\n');
-  }
-
-  private serializeActiveItems(items?: WardrobeItemPreviewDto[]): string {
-    if (items === undefined) {
-      return '';
-    }
-
-    if (!items.length) {
-      return 'No items currently available (all in washing, missing, or repair).';
-    }
-
-    return [
-      'Currently available wardrobe items (active, in season):',
-      ...items.map(
-        (item) =>
-          `- ${item.name || item.type} (${item.color || 'color N/A'}, ${item.season || 'season N/A'})`,
-      ),
-    ].join('\n');
-  }
-
-  private serializeWardrobeItems(items: WardrobeItemDto[]) {
-    if (!items.length) {
-      return 'No wardrobe items supplied.';
-    }
-
-    return [
-      'Wardrobe items:',
-      ...items.map(
-        (item) =>
-          `- ${item.name || item.type} (${item.color || 'color N/A'}, ${item.season || 'season N/A'})`,
-      ),
-    ].join('\n');
-  }
-
-  private serializeRecentlyWorn(entries?: RecentlyWornEntry[]): string {
-    if (!entries?.length) {
-      return '';
-    }
-
-    return [
-      'Recently worn:',
-      ...entries.map(
-        (entry) => `- ${entry.date}: ${entry.itemNames.join(', ')}`,
-      ),
-    ].join('\n');
   }
 
   private logUsage(
