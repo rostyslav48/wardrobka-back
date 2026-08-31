@@ -538,23 +538,24 @@ describe('GeminiClientService', () => {
     expect(currentTurn.parts[0].text).toContain('what should I wear');
   });
 
-  it('generateOutfitSummary also uses systemInstruction and logs usage', async () => {
-    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-
-    const result = await service.generateOutfitSummary({
-      occasion: 'wedding',
-      wardrobeItems: [],
+  it('appends additionalInstruction to the model-facing turn without it being part of the prompt itself', async () => {
+    await service.generateChatResponse({
+      prompt: 'suggest a complete outfit for a wedding',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      additionalInstruction:
+        'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
+      executeTool,
     });
 
     const call = generateContentMock.mock.calls[0][0];
-    expect(call.config.systemInstruction).toEqual(
-      expect.stringContaining('AI wardrobe assistant'),
+    const currentTurn = call.contents.at(-1);
+    expect(currentTurn.parts[0].text).toContain(
+      'suggest a complete outfit for a wedding',
     );
-    expect(result).toBe('the assistant reply');
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('generateOutfitSummary'),
+    expect(currentTurn.parts[0].text).toContain(
+      'call propose_outfit with the final summary',
     );
-
-    logSpy.mockRestore();
   });
 });

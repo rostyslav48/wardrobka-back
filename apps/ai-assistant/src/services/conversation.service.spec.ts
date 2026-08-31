@@ -160,6 +160,27 @@ describe('ConversationService — getOutfitSuggestions', () => {
       accountId: otherSession.accountId,
     });
   });
+
+  it('surfaces extraMetadata.proposed on the DTO so fallback rows are distinguishable', async () => {
+    const session = makeSession('s1', accountId);
+    const proposedRow = {
+      ...makeSuggestion('proposed', session),
+      extraMetadata: { proposed: true },
+    };
+    const fallbackRow = {
+      ...makeSuggestion('fallback', session),
+      extraMetadata: { proposed: false },
+    };
+    const legacyRow = makeSuggestion('legacy', session);
+    const qb = makeQueryBuilder([proposedRow, fallbackRow, legacyRow]);
+    outfitRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const result = await service.getOutfitSuggestions(accountId);
+
+    expect(result.find((r) => r.id === 'proposed')?.proposed).toBe(true);
+    expect(result.find((r) => r.id === 'fallback')?.proposed).toBe(false);
+    expect(result.find((r) => r.id === 'legacy')?.proposed).toBeUndefined();
+  });
 });
 
 describe('ConversationService — deleteOutfitSuggestion', () => {
@@ -461,5 +482,218 @@ describe('ConversationService — handleChat history replay', () => {
       }),
     );
     expect(result.outfitSuggestionId).toBe('suggestion-1');
+  });
+});
+
+describe('ConversationService — handleOutfitSuggestion', () => {
+  const accountId = 1;
+  const sessionId = 's1';
+
+  let sessionRepo: { findOneBy: jest.Mock; create: jest.Mock; save: jest.Mock };
+  let messageRepo: { find: jest.Mock; save: jest.Mock };
+  let outfitRepo: { save: jest.Mock };
+  let accountRepo: { findOne: jest.Mock };
+  let contextBuilder: {
+    fetchReferenceImageUrls: jest.Mock;
+    fetchReferenceImageParts: jest.Mock;
+    buildSeedSummary: jest.Mock;
+    executeTool: jest.Mock;
+    fetchWardrobeItems: jest.Mock;
+    fetchWeatherForAccount: jest.Mock;
+    fetchRecentlyWorn: jest.Mock;
+  };
+  let geminiClient: { generateChatResponse: jest.Mock };
+  let webhookQueueService: { scheduleJob: jest.Mock };
+  let configService: { get: jest.Mock; getOrThrow: jest.Mock };
+  let service: ConversationService;
+
+  const dto = {
+    sessionId,
+    occasion: 'wedding',
+    styleHint: 'formal',
+    season: 'summer',
+    wardrobeItemIds: [10, 11],
+  } as any;
+
+  beforeEach(() => {
+    sessionRepo = {
+      findOneBy: jest.fn().mockResolvedValue({ id: sessionId, accountId }),
+      create: jest.fn(),
+      save: jest.fn(),
+    };
+    messageRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      save: jest
+        .fn()
+        .mockResolvedValue({ id: 'm1', sessionId, role: 'assistant' }),
+    };
+    outfitRepo = {
+      save: jest.fn().mockImplementation((entity) =>
+        Promise.resolve({
+          id: 'suggestion-1',
+          createdAt: new Date('2026-01-01'),
+          ...entity,
+        }),
+      ),
+    };
+    accountRepo = {
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: accountId, name: 'Test', email: 't@e.com' }),
+    };
+    contextBuilder = {
+      fetchReferenceImageUrls: jest.fn().mockResolvedValue([]),
+      fetchReferenceImageParts: jest.fn().mockResolvedValue([]),
+      buildSeedSummary: jest.fn().mockResolvedValue('Wardrobe summary'),
+      executeTool: jest.fn().mockResolvedValue({ items: [] }),
+      fetchWardrobeItems: jest.fn(),
+      fetchWeatherForAccount: jest.fn(),
+      fetchRecentlyWorn: jest.fn(),
+    };
+    geminiClient = {
+      generateChatResponse: jest.fn().mockResolvedValue({
+        text: 'Wear the navy suit',
+        outfitProposal: {
+          summary: 'Wear the navy suit',
+          itemIds: [10, 12],
+          rationale: 'matches the formal dress code',
+        },
+      }),
+    };
+    webhookQueueService = { scheduleJob: jest.fn().mockResolvedValue(null) };
+    configService = {
+      get: jest.fn().mockReturnValue(10),
+      getOrThrow: jest.fn(),
+    };
+
+    service = new ConversationService(
+      sessionRepo as any,
+      messageRepo as any,
+      outfitRepo as any,
+      accountRepo as any,
+      contextBuilder as any,
+      geminiClient as any,
+      webhookQueueService as any,
+      configService as any,
+    );
+  });
+
+  it('uses the same tool loop and executor binding as handleChat, never touching ContextBuilderService fetch helpers directly', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    expect(geminiClient.generateChatResponse).toHaveBeenCalledTimes(1);
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(typeof call.executeTool).toBe('function');
+    expect(contextBuilder.fetchWardrobeItems).not.toHaveBeenCalled();
+    expect(contextBuilder.fetchWeatherForAccount).not.toHaveBeenCalled();
+    expect(contextBuilder.fetchRecentlyWorn).not.toHaveBeenCalled();
+
+    await call.executeTool('search_wardrobe', { type: 'jacket' });
+    expect(contextBuilder.executeTool).toHaveBeenCalledWith(
+      'search_wardrobe',
+      { type: 'jacket' },
+      { id: accountId, name: 'Test', email: 't@e.com' },
+    );
+  });
+
+  it('conveys occasion, styleHint and season as plain text in the seeded user turn, not a bespoke prompt object', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(typeof call.prompt).toBe('string');
+    expect(call.prompt).toContain('wedding');
+    expect(call.prompt).toContain('formal');
+    expect(call.prompt).toContain('summer');
+    expect(call).not.toHaveProperty('occasion');
+    expect(call).not.toHaveProperty('styleHint');
+    expect(call).not.toHaveProperty('season');
+  });
+
+  it('sends the propose_outfit nudge to the model only via additionalInstruction, never inside the persisted prompt text', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.additionalInstruction).toEqual(
+      expect.stringContaining('propose_outfit'),
+    );
+    expect(call.prompt).not.toContain('propose_outfit');
+  });
+
+  it('seeds wardrobeItemIds from the request as contextItemIds, the same mechanism chat uses for attached items', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.contextItemIds).toEqual([10, 11]);
+  });
+
+  it('a successful propose_outfit writes a suggestion linked to the assistant message, using the model-confirmed item ids', async () => {
+    const result = await service.handleOutfitSuggestion(accountId, dto);
+
+    expect(outfitRepo.save).toHaveBeenCalledWith({
+      sessionId,
+      messageId: 'm1',
+      summary: 'Wear the navy suit',
+      wardrobeItemIds: [10, 12],
+      extraMetadata: {
+        occasion: 'wedding',
+        styleHint: 'formal',
+        season: 'summer',
+        proposed: true,
+        rationale: 'matches the formal dress code',
+      },
+    });
+
+    const payload = webhookQueueService.scheduleJob.mock.calls[0][1];
+    expect(payload).toEqual({
+      type: 'outfit',
+      sessionId,
+      summary: 'Wear the navy suit',
+      wardrobeItemIds: [10, 12],
+      metadata: {
+        occasion: 'wedding',
+        styleHint: 'formal',
+        season: 'summer',
+        proposed: true,
+        rationale: 'matches the formal dress code',
+      },
+    });
+    expect(result).toEqual({ sessionId, outfitSuggestionId: 'suggestion-1' });
+  });
+
+  it('falls back to the request wardrobeItemIds and the plain text answer when the model never calls propose_outfit, flagging the row as unproposed', async () => {
+    geminiClient.generateChatResponse.mockResolvedValue({
+      text: 'I need more details before I can suggest a full outfit.',
+    });
+
+    const result = await service.handleOutfitSuggestion(accountId, dto);
+
+    expect(outfitRepo.save).toHaveBeenCalledWith({
+      sessionId,
+      messageId: 'm1',
+      summary: 'I need more details before I can suggest a full outfit.',
+      wardrobeItemIds: [10, 11],
+      extraMetadata: {
+        occasion: 'wedding',
+        styleHint: 'formal',
+        season: 'summer',
+        proposed: false,
+      },
+    });
+    expect(result.outfitSuggestionId).toBe('suggestion-1');
+  });
+
+  it('saves the seeded prompt as the user turn message before calling the model, without the internal propose_outfit instruction', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    expect(messageRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        role: 'user',
+        content: expect.stringContaining('wedding'),
+      }),
+    );
+
+    const savedMessage = messageRepo.save.mock.calls[0][0];
+    expect(savedMessage.content).not.toContain('propose_outfit');
   });
 });

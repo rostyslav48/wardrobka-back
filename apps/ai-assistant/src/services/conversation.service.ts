@@ -131,36 +131,48 @@ export class ConversationService {
     accountId: number,
     dto: GenerateOutfitRequestDto,
   ) {
+    const accountPreview = await this.getAccountPreview(accountId);
     const session = await this.resolveSession(
       accountId,
       dto.sessionId,
       dto.occasion,
     );
 
-    const accountPreview = await this.getAccountPreview(accountId);
-
-    // Phase 4 moves this path onto the tool loop as well; until then it fetches
-    // the pieces the deleted prompt-assembly helper used to bundle, minus the
-    // capped active-items dump that went away with the 50-item cap.
-    const [wardrobeItems, weather, recentlyWorn] = await Promise.all([
-      this.contextBuilder.fetchWardrobeItems(
-        accountPreview,
-        dto.wardrobeItemIds,
-      ),
-      this.contextBuilder.fetchWeatherForAccount(accountId),
-      this.contextBuilder.fetchRecentlyWorn(accountPreview),
+    const [history, seedSummary] = await Promise.all([
+      this.loadChatHistory(session.id),
+      this.contextBuilder.buildSeedSummary(accountPreview),
     ]);
 
-    const summary = await this.geminiClient.generateOutfitSummary({
-      occasion: dto.occasion,
-      styleHint: dto.styleHint,
-      season: dto.season,
-      wardrobeItems,
-      weather,
-      recentlyWorn,
-    });
+    const prompt = this.composeOutfitRequestPrompt(dto);
 
     await this.messageRepository.save({
+      sessionId: session.id,
+      role: 'user',
+      content: prompt,
+    });
+
+    const response = await this.geminiClient.generateChatResponse({
+      prompt,
+      history,
+      referenceImages: [],
+      seedSummary,
+      // The ids on the request are a starting constraint, not a hard limit —
+      // the model may confirm them via get_item_details and still extend or
+      // replace them with anything it finds through search_wardrobe.
+      contextItemIds: dto.wardrobeItemIds,
+      // Model-facing only — never persisted as message content, so the
+      // client-visible transcript doesn't show internal tool-name plumbing.
+      additionalInstruction:
+        'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
+      executeTool: (name, args) =>
+        this.contextBuilder.executeTool(name, args, accountPreview),
+    });
+
+    const proposal = response.outfitProposal;
+    const summary = proposal?.summary ?? response.text;
+    const wardrobeItemIds = proposal?.itemIds ?? dto.wardrobeItemIds;
+
+    const assistantMessage = await this.messageRepository.save({
       sessionId: session.id,
       role: 'assistant',
       content: summary,
@@ -168,12 +180,19 @@ export class ConversationService {
 
     const outfit = await this.outfitRepository.save({
       sessionId: session.id,
+      messageId: assistantMessage.id,
       summary,
-      wardrobeItemIds: dto.wardrobeItemIds,
+      wardrobeItemIds,
       extraMetadata: {
         occasion: dto.occasion,
         styleHint: dto.styleHint,
         season: dto.season,
+        // false when the model answered without calling propose_outfit —
+        // e.g. a clarifying question — so consumers can tell a real
+        // suggestion from a fallback that only preserves the "always get a
+        // row back" contract.
+        proposed: Boolean(proposal),
+        ...(proposal ? { rationale: proposal.rationale } : {}),
       },
     });
 
@@ -181,7 +200,7 @@ export class ConversationService {
       type: 'outfit',
       sessionId: session.id,
       summary,
-      wardrobeItemIds: dto.wardrobeItemIds,
+      wardrobeItemIds,
       metadata: outfit.extraMetadata,
     });
 
@@ -189,6 +208,26 @@ export class ConversationService {
       sessionId: session.id,
       outfitSuggestionId: outfit.id,
     };
+  }
+
+  /**
+   * The seeded user turn for outfit-generation requests — occasion/styleHint/
+   * season become plain text in the same turn chat uses, not a separately
+   * composed prompt. `wardrobeItemIds` rides on `contextItemIds` instead
+   * (handled by GeminiClientService the same way it is for chat), so this
+   * path adds no prompt-assembly logic of its own. This exact string is also
+   * what gets persisted as the user message row, so it stays free of
+   * internal tool-name instructions — those ride on `additionalInstruction`
+   * instead, which GeminiClientService appends to the model-facing turn only.
+   */
+  private composeOutfitRequestPrompt(dto: GenerateOutfitRequestDto): string {
+    return [
+      `Suggest a complete outfit for this occasion: ${dto.occasion}.`,
+      dto.styleHint ? `Style hint: ${dto.styleHint}` : null,
+      dto.season ? `Season: ${dto.season}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   async getSessions(accountId: number): Promise<AssistantSessionDto[]> {
