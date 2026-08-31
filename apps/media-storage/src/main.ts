@@ -13,6 +13,11 @@ async function bootstrap() {
   app.connectMicroservice(rmqService.getOptions(MEDIA_STORAGE_SERVICE));
   app.useGlobalPipes(new ValidationPipe());
   await app.startAllMicroservices();
+  // `connectMicroservice` marks the microservice as already initialized and
+  // its init hook as already called, so `startAllMicroservices()` alone never
+  // runs any lifecycle hook. Without this the service's OnModuleInit — which
+  // installs the tmp/ retention rule on the bucket — is dead code.
+  await app.init();
 }
 
 bootstrap();

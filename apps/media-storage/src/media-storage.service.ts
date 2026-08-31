@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { extname } from 'path';
@@ -10,7 +10,7 @@ import { FileTransfer } from '@app/media-storage/models/file-transfer';
 import { EnvironmentType } from '@app/common/enums';
 
 @Injectable()
-export class MediaStorageService {
+export class MediaStorageService implements OnModuleInit {
   private readonly Disk: DiskUtil;
 
   constructor(configService: ConfigService) {
@@ -40,6 +40,16 @@ export class MediaStorageService {
         this.Disk = null;
       }
     }
+  }
+
+  /**
+   * The `tmp/` originals are deleted the moment their generation job succeeds,
+   * so this rule only ever sweeps up the ones a crashed job orphaned. Applied
+   * at boot rather than documented as manual bucket setup, so the guarantee
+   * holds on every environment the service runs against.
+   */
+  public async onModuleInit(): Promise<void> {
+    await this.Disk?.ensureTempPrefixLifecycleRule?.();
   }
 
   public upload(file: FileTransfer, path: string): Promise<string> {

@@ -19,4 +19,5 @@ export const WARDROBE_PREVIEW_SELECT: (keyof WardrobeItemEntity)[] = [
   'season',
   'size',
   'status',
+  'image_status',
 ];

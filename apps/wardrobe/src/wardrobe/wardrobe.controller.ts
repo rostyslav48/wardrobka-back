@@ -15,6 +15,7 @@ import {
 } from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
+import { ImageStatus } from '@app/wardrobe/enums';
 import { FileTransfer } from '@app/media-storage/models';
 
 @UseFilters(MicroserviceExceptionFilter)
@@ -60,6 +61,7 @@ export class WardrobeController {
       data.dto,
       user.id,
       data.image,
+      user,
     );
     this.rmqService.ack(context);
 
@@ -99,6 +101,33 @@ export class WardrobeController {
     this.rmqService.ack(context);
 
     return deletedItem;
+  }
+
+  // Terminal step of a product-image generation job, called by ai-assistant.
+  // The service ignores anything that is no longer `pending`, so a redelivered
+  // job cannot overwrite a finished item.
+  @MessagePattern(WARDROBE_REQUESTS.applyGeneratedImage)
+  async applyGeneratedImage(
+    @Ctx() context: RmqContext,
+    @Body()
+    {
+      data,
+    }: RequestType<{
+      itemId: number;
+      accountId: number;
+      status: ImageStatus.Ready | ImageStatus.Failed;
+      imgPath?: string;
+    }>,
+  ): Promise<boolean> {
+    const applied = await this.wardrobeService.applyGeneratedImage(
+      data.itemId,
+      data.accountId,
+      data.status,
+      data.imgPath,
+    );
+    this.rmqService.ack(context);
+
+    return applied;
   }
 
   @MessagePattern(WARDROBE_REQUESTS.findManyByIds)

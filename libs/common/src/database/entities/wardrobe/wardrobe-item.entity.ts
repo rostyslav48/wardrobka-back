@@ -65,4 +65,9 @@ export class WardrobeItemEntity {
 
   @Column({ length: 100, nullable: true })
   brand?: string;
+
+  // Generation state of the product image (pending | ready | failed).
+  // Unrelated to `status` above — see the ImageStatus enum.
+  @Column({ name: 'image_status', length: 20, default: 'ready' })
+  image_status: string;
 }
