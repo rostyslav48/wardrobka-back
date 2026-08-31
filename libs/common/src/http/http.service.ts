@@ -59,14 +59,27 @@ export class HttpService {
       ? this.appendQuery(url, options.params)
       : url;
 
+    // Google's OAuth token and revoke endpoints reject a JSON body, so a
+    // URLSearchParams body is passed through as-is and content-typed as a
+    // form. Everything else keeps the JSON behaviour it had.
+    const isForm = body instanceof URLSearchParams;
+    const contentType = isForm
+      ? 'application/x-www-form-urlencoded'
+      : 'application/json';
+
     const init: RequestInit = {
       method,
       headers: {
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined ? { 'Content-Type': contentType } : {}),
         ...this.defaultHeaders,
         ...(options.headers ?? {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body:
+        body === undefined
+          ? undefined
+          : isForm
+            ? (body as URLSearchParams).toString()
+            : JSON.stringify(body),
     };
 
     return defer(() => from(this.execute<T>(finalUrl, init, options))).pipe(
