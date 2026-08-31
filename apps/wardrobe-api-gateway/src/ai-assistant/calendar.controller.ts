@@ -8,6 +8,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import type { Response } from 'express';
 
 import { CALENDAR_FALLBACK_APP_REDIRECT } from '@app/ai-assistant/constants';
@@ -15,6 +17,15 @@ import { UserAccountPreview } from '@app/auth/users/types';
 import { CurrentUser, Public } from '@app/wardrobe-api-gateway/auth/decorators';
 
 import { CalendarService } from './calendar.service';
+
+class OccasionsQuery {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  days?: number;
+}
 
 @Controller('calendar')
 export class CalendarController {
@@ -80,5 +91,13 @@ export class CalendarController {
   @Delete('google')
   disconnect(@CurrentUser() user: UserAccountPreview) {
     return this.calendarService.disconnect(user);
+  }
+
+  @Get('occasions')
+  getOccasions(
+    @Query() query: OccasionsQuery,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.calendarService.getOccasions(user, query.days);
   }
 }

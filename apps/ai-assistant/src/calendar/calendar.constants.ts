@@ -30,3 +30,31 @@ export const ACCESS_TOKEN_SKEW_MS = 60 * 1000;
  */
 export const DEFAULT_APP_REDIRECT =
   'wardrobeassistantfront://calendar-connected';
+
+export const GOOGLE_CALENDAR_EVENTS_URL =
+  'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+
+/**
+ * Partial-response mask: only what the row/occasion projections need. No
+ * description, organizer, attendee identity, conference data, attachments or
+ * recurrence ever leaves Google in the response body — the privacy boundary
+ * is enforced here, not by discarding fields after the fact.
+ */
+export const GOOGLE_CALENDAR_EVENTS_FIELDS =
+  'items(id,summary,start,end,location,status,eventType,attendees/responseStatus)';
+
+export const GOOGLE_CALENDAR_EVENTS_TIMEOUT_MS = 5000;
+export const GOOGLE_CALENDAR_MAX_RESULTS = 20;
+
+export const CALENDAR_DAYS_AHEAD_MIN = 1;
+export const CALENDAR_DAYS_AHEAD_MAX = 7;
+export const CALENDAR_DAYS_AHEAD_DEFAULT = 2;
+
+export const DEFAULT_CALENDAR_CACHE_TTL_MS = 300000;
+export const CALENDAR_CACHE_MAX_ENTRIES = 500;
+
+/** eventType values that are noise for outfit/occasion planning. */
+export const CALENDAR_NOISE_EVENT_TYPES = new Set([
+  'workingLocation',
+  'birthday',
+]);

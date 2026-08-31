@@ -23,3 +23,27 @@ export interface GoogleTokenResponse {
   scope?: string;
   token_type?: string;
 }
+
+/** The compact row format handed to the tool loop. Never carries the event id. */
+export interface CalendarEventsResult {
+  connected: boolean;
+  rows: string[];
+}
+
+export interface CalendarOccasion {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location?: string;
+}
+
+export interface CalendarOccasionsResult {
+  status: 'connected' | 'disconnected';
+  occasions: CalendarOccasion[];
+}
+
+export interface GetOccasionsRequest {
+  daysAhead?: number;
+}

@@ -28,6 +28,7 @@ import { WebhookQueueService } from './services/webhook-queue.service';
 import { WebhookDispatcherJob } from './jobs/webhook-dispatcher.job';
 import { WebhookHttpService } from './webhook/webhook-http.service';
 import { CalendarController } from './calendar/calendar.controller';
+import { GoogleCalendarService } from './calendar/google-calendar.service';
 import { GoogleOAuthService } from './calendar/google-oauth.service';
 import { GoogleTokenService } from './calendar/google-token.service';
 
@@ -67,7 +68,7 @@ import { GoogleTokenService } from './calendar/google-token.service';
         GOOGLE_CALENDAR_CACHE_TTL_MS: Joi.number()
           .integer()
           .min(0)
-          .optional(),
+          .default(300000),
       }),
     }),
     ScheduleModule.forRoot(),
@@ -95,6 +96,7 @@ import { GoogleTokenService } from './calendar/google-token.service';
     HttpService,
     GoogleOAuthService,
     GoogleTokenService,
+    GoogleCalendarService,
   ],
 })
 export class AiAssistantModule {}

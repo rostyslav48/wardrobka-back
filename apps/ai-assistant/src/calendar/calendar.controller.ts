@@ -8,8 +8,11 @@ import { RequestType } from '@app/common/types';
 import {
   CalendarAuthUrlResponse,
   CalendarCallbackResponse,
+  CalendarOccasionsResult,
   CalendarStatusResponse,
+  GetOccasionsRequest,
 } from './calendar.types';
+import { GoogleCalendarService } from './google-calendar.service';
 import { CallbackParams, GoogleOAuthService } from './google-oauth.service';
 import { GoogleTokenService } from './google-token.service';
 
@@ -19,6 +22,7 @@ export class CalendarController {
   constructor(
     private readonly googleOAuthService: GoogleOAuthService,
     private readonly googleTokenService: GoogleTokenService,
+    private readonly googleCalendarService: GoogleCalendarService,
     private readonly rmqService: RmqService,
   ) {}
 
@@ -63,8 +67,23 @@ export class CalendarController {
     @Body() { user }: RequestType<void>,
   ): Promise<CalendarStatusResponse> {
     await this.googleTokenService.disconnect(user.id);
+    this.googleCalendarService.invalidateAccount(user.id);
     this.rmqService.ack(context);
 
     return { status: 'disconnected' };
+  }
+
+  @MessagePattern(CALENDAR_REQUESTS.getOccasions)
+  async getOccasions(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<GetOccasionsRequest>,
+  ): Promise<CalendarOccasionsResult> {
+    const result = await this.googleCalendarService.getOccasions(
+      user.id,
+      data?.daysAhead,
+    );
+    this.rmqService.ack(context);
+
+    return result;
   }
 }
