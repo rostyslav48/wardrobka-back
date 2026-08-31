@@ -64,3 +64,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 test-results/
 playwright-report/
 .e2e-cache/
+
+# generated docker.js documentation output (accidentally committed in 4319fe7)
+doc/

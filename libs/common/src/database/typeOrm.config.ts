@@ -14,6 +14,7 @@ import {
   AssistantSessionEntity,
   AssistantWebhookJobEntity,
 } from './entities/assistant';
+import { ErrorLogEntity } from './entities/logger';
 
 config({ path: './libs/common/src/database/.env' });
 
@@ -28,6 +29,7 @@ export const databaseEntities = [
   AssistantMessageEntity,
   AssistantOutfitSuggestionEntity,
   AssistantWebhookJobEntity,
+  ErrorLogEntity,
 ];
 
 export const AppDataSource = new DataSource({
