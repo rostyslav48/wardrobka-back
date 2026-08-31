@@ -3,6 +3,7 @@ export const CALENDAR_REQUESTS = {
   handleCallback: 'calendar/handle-callback',
   getStatus: 'calendar/get-status',
   disconnect: 'calendar/disconnect',
+  getOccasions: 'calendar/get-occasions',
 };
 
 /**

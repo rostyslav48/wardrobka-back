@@ -57,4 +57,10 @@ export class CalendarService {
       this.aiClient.send(CALENDAR_REQUESTS.disconnect, undefined, user),
     );
   }
+
+  getOccasions(user: UserAccountPreview, daysAhead?: number) {
+    return firstValueFrom(
+      this.aiClient.send(CALENDAR_REQUESTS.getOccasions, { daysAhead }, user),
+    );
+  }
 }
