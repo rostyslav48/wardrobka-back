@@ -47,6 +47,13 @@ interface ChatContext {
   seedSummary: string;
   /** Item ids the user attached to this message, if any. */
   contextItemIds?: number[];
+  /**
+   * Extra guidance appended to the model-facing turn only — never persisted
+   * as message content. Used by outfit-generation requests to nudge the
+   * model toward propose_outfit without that instruction leaking into the
+   * client-visible chat transcript.
+   */
+  additionalInstruction?: string;
   executeTool: ToolExecutor;
 }
 
@@ -298,6 +305,7 @@ export class GeminiClientService {
     prompt,
     seedSummary,
     contextItemIds,
+    additionalInstruction,
   }: ChatContext) {
     return [
       seedSummary,
@@ -306,6 +314,7 @@ export class GeminiClientService {
         : null,
       'User request:',
       prompt,
+      additionalInstruction ?? null,
     ]
       .filter(Boolean)
       .join('\n\n');

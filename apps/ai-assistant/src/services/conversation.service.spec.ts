@@ -588,6 +588,16 @@ describe('ConversationService — handleOutfitSuggestion', () => {
     expect(call).not.toHaveProperty('season');
   });
 
+  it('sends the propose_outfit nudge to the model only via additionalInstruction, never inside the persisted prompt text', async () => {
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.additionalInstruction).toEqual(
+      expect.stringContaining('propose_outfit'),
+    );
+    expect(call.prompt).not.toContain('propose_outfit');
+  });
+
   it('seeds wardrobeItemIds from the request as contextItemIds, the same mechanism chat uses for attached items', async () => {
     await service.handleOutfitSuggestion(accountId, dto);
 
@@ -607,6 +617,7 @@ describe('ConversationService — handleOutfitSuggestion', () => {
         occasion: 'wedding',
         styleHint: 'formal',
         season: 'summer',
+        proposed: true,
         rationale: 'matches the formal dress code',
       },
     });
@@ -621,13 +632,14 @@ describe('ConversationService — handleOutfitSuggestion', () => {
         occasion: 'wedding',
         styleHint: 'formal',
         season: 'summer',
+        proposed: true,
         rationale: 'matches the formal dress code',
       },
     });
     expect(result).toEqual({ sessionId, outfitSuggestionId: 'suggestion-1' });
   });
 
-  it('falls back to the request wardrobeItemIds and the plain text answer when the model never calls propose_outfit', async () => {
+  it('falls back to the request wardrobeItemIds and the plain text answer when the model never calls propose_outfit, flagging the row as unproposed', async () => {
     geminiClient.generateChatResponse.mockResolvedValue({
       text: 'I need more details before I can suggest a full outfit.',
     });
@@ -643,12 +655,13 @@ describe('ConversationService — handleOutfitSuggestion', () => {
         occasion: 'wedding',
         styleHint: 'formal',
         season: 'summer',
+        proposed: false,
       },
     });
     expect(result.outfitSuggestionId).toBe('suggestion-1');
   });
 
-  it('saves the seeded prompt as the user turn message before calling the model', async () => {
+  it('saves the seeded prompt as the user turn message before calling the model, without the internal propose_outfit instruction', async () => {
     await service.handleOutfitSuggestion(accountId, dto);
 
     expect(messageRepo.save).toHaveBeenCalledWith(
@@ -658,5 +671,8 @@ describe('ConversationService — handleOutfitSuggestion', () => {
         content: expect.stringContaining('wedding'),
       }),
     );
+
+    const savedMessage = messageRepo.save.mock.calls[0][0];
+    expect(savedMessage.content).not.toContain('propose_outfit');
   });
 });

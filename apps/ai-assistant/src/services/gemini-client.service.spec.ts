@@ -537,4 +537,25 @@ describe('GeminiClientService', () => {
     );
     expect(currentTurn.parts[0].text).toContain('what should I wear');
   });
+
+  it('appends additionalInstruction to the model-facing turn without it being part of the prompt itself', async () => {
+    await service.generateChatResponse({
+      prompt: 'suggest a complete outfit for a wedding',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      additionalInstruction:
+        'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
+      executeTool,
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    const currentTurn = call.contents.at(-1);
+    expect(currentTurn.parts[0].text).toContain(
+      'suggest a complete outfit for a wedding',
+    );
+    expect(currentTurn.parts[0].text).toContain(
+      'call propose_outfit with the final summary',
+    );
+  });
 });

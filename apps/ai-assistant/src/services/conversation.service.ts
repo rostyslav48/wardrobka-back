@@ -160,6 +160,10 @@ export class ConversationService {
       // the model may confirm them via get_item_details and still extend or
       // replace them with anything it finds through search_wardrobe.
       contextItemIds: dto.wardrobeItemIds,
+      // Model-facing only — never persisted as message content, so the
+      // client-visible transcript doesn't show internal tool-name plumbing.
+      additionalInstruction:
+        'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
       executeTool: (name, args) =>
         this.contextBuilder.executeTool(name, args, accountPreview),
     });
@@ -183,6 +187,11 @@ export class ConversationService {
         occasion: dto.occasion,
         styleHint: dto.styleHint,
         season: dto.season,
+        // false when the model answered without calling propose_outfit —
+        // e.g. a clarifying question — so consumers can tell a real
+        // suggestion from a fallback that only preserves the "always get a
+        // row back" contract.
+        proposed: Boolean(proposal),
         ...(proposal ? { rationale: proposal.rationale } : {}),
       },
     });
@@ -206,14 +215,16 @@ export class ConversationService {
    * season become plain text in the same turn chat uses, not a separately
    * composed prompt. `wardrobeItemIds` rides on `contextItemIds` instead
    * (handled by GeminiClientService the same way it is for chat), so this
-   * path adds no prompt-assembly logic of its own.
+   * path adds no prompt-assembly logic of its own. This exact string is also
+   * what gets persisted as the user message row, so it stays free of
+   * internal tool-name instructions — those ride on `additionalInstruction`
+   * instead, which GeminiClientService appends to the model-facing turn only.
    */
   private composeOutfitRequestPrompt(dto: GenerateOutfitRequestDto): string {
     return [
       `Suggest a complete outfit for this occasion: ${dto.occasion}.`,
       dto.styleHint ? `Style hint: ${dto.styleHint}` : null,
       dto.season ? `Season: ${dto.season}` : null,
-      'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
     ]
       .filter(Boolean)
       .join('\n');
