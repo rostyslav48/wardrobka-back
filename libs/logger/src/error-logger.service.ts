@@ -19,6 +19,7 @@ const SEVERITY_RANK: Record<ErrorLogSeverity, number> = {
 };
 
 const DEFAULT_MIN_SEVERITY: ErrorLogSeverity = 'warn';
+const UNKNOWN_SERVICE_NAME = 'unknown';
 
 @Injectable()
 export class ErrorLoggerService {
@@ -33,8 +34,16 @@ export class ErrorLoggerService {
     @Inject(ERROR_LOGGER_MODULE_OPTIONS)
     options?: ErrorLoggerModuleOptions,
   ) {
-    this.serviceName =
+    const configuredServiceName =
       options?.serviceName ?? this.configService.get<string>('SERVICE_NAME');
+    if (!configuredServiceName) {
+      this.fallbackLogger.error(
+        'ErrorLoggerService has no serviceName: set SERVICE_NAME or pass ' +
+          `ErrorLoggerModule.register({ serviceName }). Logged rows will be ` +
+          `stamped service="${UNKNOWN_SERVICE_NAME}".`,
+      );
+    }
+    this.serviceName = configuredServiceName ?? UNKNOWN_SERVICE_NAME;
     this.minSeverity =
       this.configService.get<ErrorLogSeverity>('ERROR_LOG_MIN_SEVERITY') ??
       DEFAULT_MIN_SEVERITY;
