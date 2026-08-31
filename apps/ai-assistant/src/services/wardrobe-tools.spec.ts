@@ -28,12 +28,13 @@ const propertyOf = (name: string, property: string): Schema =>
   byName(name).parameters?.properties?.[property] as Schema;
 
 describe('wardrobe tool declarations', () => {
-  it('registers exactly the four retrieval tools', () => {
+  it('registers the four retrieval tools plus the terminal propose_outfit tool', () => {
     expect(TOOL_DECLARATIONS.map((d) => d.name)).toEqual([
       'search_wardrobe',
       'get_item_details',
       'get_weather',
       'get_recent_outfits',
+      'propose_outfit',
     ]);
   });
 
@@ -89,6 +90,19 @@ describe('wardrobe tool declarations', () => {
 
   it('requires ids on get_item_details', () => {
     expect(byName('get_item_details').parameters?.required).toEqual(['ids']);
+  });
+
+  it('declares propose_outfit with summary, itemIds and rationale, all required', () => {
+    const declaration = byName('propose_outfit');
+
+    expect(
+      Object.keys(declaration.parameters?.properties ?? {}).sort(),
+    ).toEqual(['summary', 'itemIds', 'rationale'].sort());
+    expect(declaration.parameters?.required).toEqual([
+      'summary',
+      'itemIds',
+      'rationale',
+    ]);
   });
 });
 

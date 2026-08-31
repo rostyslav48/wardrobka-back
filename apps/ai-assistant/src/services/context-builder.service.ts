@@ -90,6 +90,8 @@ export class ContextBuilderService {
           return await this.getWeather(account, args);
         case TOOL_NAMES.getRecentOutfits:
           return await this.getRecentOutfits(account, args);
+        case TOOL_NAMES.proposeOutfit:
+          return await this.validateOutfitProposal(account, args);
         default:
           return { error: `Unknown tool "${name}".` };
       }
@@ -205,6 +207,58 @@ export class ContextBuilderService {
         ? { ...weather, dailyForecast: weather.dailyForecast.slice(0, days) }
         : weather,
     };
+  }
+
+  /**
+   * `propose_outfit` is a terminal tool: the model is trusted on `summary` and
+   * `rationale`, but `itemIds` is user-controlled input reaching another
+   * account's data if left unchecked, so every id is checked against what
+   * `findManyByIds` actually returns for *this* account — an id belonging to
+   * someone else's wardrobe simply never comes back, the same scoping every
+   * other tool here relies on. Any id missing from the response is reported
+   * back to the model rather than silently dropped, so the loop (not this
+   * handler) decides whether to end the exchange.
+   */
+  private async validateOutfitProposal(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const summary = typeof args.summary === 'string' ? args.summary.trim() : '';
+    const rationale =
+      typeof args.rationale === 'string' ? args.rationale.trim() : '';
+    const itemIds = Array.isArray(args.itemIds)
+      ? [
+          ...new Set(
+            args.itemIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id)),
+          ),
+        ]
+      : [];
+
+    if (!summary) {
+      return { error: 'propose_outfit requires a non-empty summary.' };
+    }
+
+    if (!itemIds.length) {
+      return {
+        error: 'propose_outfit requires at least one wardrobe item id.',
+      };
+    }
+
+    const owned = await this.fetchWardrobeItems(account, itemIds);
+    const ownedIds = new Set(owned.map((item) => item.id));
+    const unknownIds = itemIds.filter((id) => !ownedIds.has(id));
+
+    if (unknownIds.length) {
+      return {
+        error:
+          `These item ids do not belong to this account's wardrobe and were rejected: ` +
+          `${unknownIds.join(', ')}. Only propose items confirmed via search_wardrobe or get_item_details.`,
+      };
+    }
+
+    return { ok: true, summary, rationale, itemIds };
   }
 
   private async getRecentOutfits(

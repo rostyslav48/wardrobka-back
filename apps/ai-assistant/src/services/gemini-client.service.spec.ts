@@ -170,7 +170,7 @@ describe('GeminiClientService', () => {
       executeTool,
     });
 
-    expect(result).toBe('I need more details to help with that request.');
+    expect(result.text).toBe('I need more details to help with that request.');
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -193,6 +193,7 @@ describe('GeminiClientService', () => {
       'get_item_details',
       'get_weather',
       'get_recent_outfits',
+      'propose_outfit',
     ]);
     expect(JSON.stringify(declarations)).not.toContain('accountId');
   });
@@ -206,7 +207,8 @@ describe('GeminiClientService', () => {
       executeTool,
     });
 
-    expect(result).toBe('the assistant reply');
+    expect(result.text).toBe('the assistant reply');
+    expect(result.outfitProposal).toBeUndefined();
     expect(executeTool).not.toHaveBeenCalled();
     expect(generateContentMock).toHaveBeenCalledTimes(1);
   });
@@ -233,7 +235,7 @@ describe('GeminiClientService', () => {
       executeTool,
     });
 
-    expect(result).toBe('wear the navy jacket');
+    expect(result.text).toBe('wear the navy jacket');
     expect(executeTool).toHaveBeenCalledWith('search_wardrobe', {
       type: 'jacket',
     });
@@ -353,7 +355,7 @@ describe('GeminiClientService', () => {
       executeTool,
     });
 
-    expect(result).toBe('best I can do');
+    expect(result.text).toBe('best I can do');
     // two tool-enabled rounds, then exactly one tools-disabled call
     expect(generateContentMock).toHaveBeenCalledTimes(3);
     expect(
@@ -391,7 +393,7 @@ describe('GeminiClientService', () => {
       executeTool,
     });
 
-    expect(result).toBe('answering from what I have');
+    expect(result.text).toBe('answering from what I have');
     expect(executeTool).toHaveBeenCalledTimes(2);
 
     // Every requested call still gets a functionResponse — the over-budget one
@@ -406,6 +408,117 @@ describe('GeminiClientService', () => {
     expect(toolTurn.parts[2].functionResponse.response.error).toContain(
       'tool budget',
     );
+  });
+
+  it('ends the loop on a successful propose_outfit call, returning the outfit proposal', async () => {
+    generateContentMock.mockResolvedValueOnce({
+      functionCalls: [
+        {
+          name: 'propose_outfit',
+          args: {
+            summary: 'Wear the navy blazer with chinos',
+            itemIds: [1, 2],
+            rationale: 'mild and dry today',
+          },
+          id: 'c1',
+        },
+      ],
+      usageMetadata: {},
+    });
+    executeTool.mockResolvedValue({
+      ok: true,
+      summary: 'Wear the navy blazer with chinos',
+      rationale: 'mild and dry today',
+      itemIds: [1, 2],
+    });
+
+    const result = await service.generateChatResponse({
+      prompt: 'what should I wear today',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      executeTool,
+    });
+
+    expect(result.text).toBe('Wear the navy blazer with chinos');
+    expect(result.outfitProposal).toEqual({
+      summary: 'Wear the navy blazer with chinos',
+      rationale: 'mild and dry today',
+      itemIds: [1, 2],
+    });
+    // Terminal: no second round is issued to get a text answer.
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues the loop when propose_outfit is rejected, rather than ending it', async () => {
+    generateContentMock
+      .mockResolvedValueOnce({
+        functionCalls: [
+          {
+            name: 'propose_outfit',
+            args: { summary: 'Outfit', itemIds: [99], rationale: 'x' },
+            id: 'c1',
+          },
+        ],
+        usageMetadata: {},
+      })
+      .mockResolvedValueOnce({
+        text: 'apologies, let me retry',
+        usageMetadata: {},
+      });
+    executeTool.mockResolvedValue({
+      error:
+        "These item ids do not belong to this account's wardrobe and were rejected: 99.",
+    });
+
+    const result = await service.generateChatResponse({
+      prompt: 'what should I wear today',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      executeTool,
+    });
+
+    expect(result.outfitProposal).toBeUndefined();
+    expect(result.text).toBe('apologies, let me retry');
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores any further tool call in the same round once propose_outfit succeeds', async () => {
+    generateContentMock.mockResolvedValueOnce({
+      functionCalls: [
+        {
+          name: 'propose_outfit',
+          args: { summary: 'Outfit', itemIds: [1], rationale: 'x' },
+          id: 'c1',
+        },
+        { name: 'search_wardrobe', args: { type: 'jacket' }, id: 'c2' },
+      ],
+      usageMetadata: {},
+    });
+    executeTool.mockResolvedValue({
+      ok: true,
+      summary: 'Outfit',
+      rationale: 'x',
+      itemIds: [1],
+    });
+
+    await service.generateChatResponse({
+      prompt: 'what should I wear today',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      executeTool,
+    });
+
+    // Only propose_outfit reached the executor — the trailing search_wardrobe
+    // call in the same round was never executed.
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(executeTool).toHaveBeenCalledWith('propose_outfit', {
+      summary: 'Outfit',
+      itemIds: [1],
+      rationale: 'x',
+    });
   });
 
   it('includes the seed summary in the current user turn', async () => {

@@ -11,7 +11,7 @@ import {
 
 import { WardrobeItemDto, WardrobeItemPreviewDto } from '@app/wardrobe/dto';
 import { RecentlyWornEntry } from './context-builder.service';
-import { TOOL_DECLARATIONS } from './wardrobe-tools';
+import { TOOL_DECLARATIONS, TOOL_NAMES } from './wardrobe-tools';
 
 import { WeatherContext } from '../types/weather-context.type';
 
@@ -29,6 +29,19 @@ export type ToolExecutor = (
   name: string,
   args: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
+
+/** The validated payload of a successful `propose_outfit` call. */
+export interface OutfitProposal {
+  summary: string;
+  itemIds: number[];
+  rationale: string;
+}
+
+export interface ChatCompletionResult {
+  text: string;
+  /** Set only when the exchange ended via a successful propose_outfit call. */
+  outfitProposal?: OutfitProposal;
+}
 
 interface ChatContext {
   prompt: string;
@@ -102,7 +115,9 @@ export class GeminiClientService {
    * guardrail trips. Both guardrails degrade into one final tools-disabled
    * call, so the user never sees a hard failure from a spent budget.
    */
-  async generateChatResponse(context: ChatContext): Promise<string> {
+  async generateChatResponse(
+    context: ChatContext,
+  ): Promise<ChatCompletionResult> {
     const contents: Content[] = [
       ...context.history.map((message) => ({
         role: message.role,
@@ -130,7 +145,7 @@ export class GeminiClientService {
         this.logger.log(
           `generateChatResponse completed — rounds=${round} toolCalls=${callsUsed}`,
         );
-        return this.extractText(response);
+        return { text: this.extractText(response) };
       }
 
       contents.push({
@@ -140,8 +155,17 @@ export class GeminiClientService {
 
       const responseParts: Part[] = [];
       let budgetExhausted = false;
+      let outfitProposal: OutfitProposal | undefined;
 
       for (const call of calls) {
+        // propose_outfit is terminal: once one succeeds, every further call in
+        // this same round is ignored — it never reaches the executor, never
+        // charges the budget, and gets no functionResponse, because the
+        // exchange is ending regardless.
+        if (outfitProposal) {
+          continue;
+        }
+
         const name = call.name ?? '';
         const args = (call.args ?? {}) as Record<string, unknown>;
 
@@ -176,9 +200,26 @@ export class GeminiClientService {
         }
 
         responseParts.push(this.toFunctionResponse(call, result));
+
+        if (name === TOOL_NAMES.proposeOutfit && !result.error) {
+          outfitProposal = {
+            summary: String(result.summary ?? ''),
+            itemIds: Array.isArray(result.itemIds)
+              ? (result.itemIds as number[])
+              : [],
+            rationale: String(result.rationale ?? ''),
+          };
+        }
       }
 
       contents.push({ role: 'user', parts: responseParts });
+
+      if (outfitProposal) {
+        this.logger.log(
+          `generateChatResponse completed via propose_outfit — rounds=${round} toolCalls=${callsUsed}`,
+        );
+        return { text: outfitProposal.summary, outfitProposal };
+      }
 
       if (budgetExhausted) {
         return this.finalAnswerWithoutTools(contents, callsUsed, round);
@@ -200,7 +241,7 @@ export class GeminiClientService {
     contents: Content[],
     callsUsed: number,
     rounds: number,
-  ): Promise<string> {
+  ): Promise<ChatCompletionResult> {
     contents.push({ role: 'user', parts: [{ text: BUDGET_EXHAUSTED_NOTE }] });
 
     const response = await this.send(contents, 'final (tools disabled)', false);
@@ -209,7 +250,7 @@ export class GeminiClientService {
       `generateChatResponse completed after budget exhaustion — rounds=${rounds} toolCalls=${callsUsed}`,
     );
 
-    return this.extractText(response);
+    return { text: this.extractText(response) };
   }
 
   private async send(

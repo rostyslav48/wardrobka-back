@@ -16,6 +16,7 @@ import {
 import { UserAccountEntity } from '@app/common/database/entities/auth';
 import {
   AssistantMessageDto,
+  AssistantOutfitSuggestionDto,
   AssistantSessionDto,
   ChatRequestDto,
   GenerateOutfitRequestDto,
@@ -89,8 +90,26 @@ export class ConversationService {
     const assistantMessage = await this.messageRepository.save({
       sessionId: session.id,
       role: 'assistant',
-      content: response,
+      content: response.text,
     });
+
+    let suggestionDto: AssistantOutfitSuggestionDto | undefined;
+
+    if (response.outfitProposal) {
+      const suggestion = await this.outfitRepository.save({
+        sessionId: session.id,
+        messageId: assistantMessage.id,
+        summary: response.outfitProposal.summary,
+        wardrobeItemIds: response.outfitProposal.itemIds,
+        extraMetadata: { rationale: response.outfitProposal.rationale },
+      });
+
+      suggestionDto = plainToInstance(
+        AssistantOutfitSuggestionDto,
+        suggestion,
+        { excludeExtraneousValues: true },
+      );
+    }
 
     await this.webhookQueueService.scheduleJob(accountId, {
       type: 'chat',
@@ -98,11 +117,13 @@ export class ConversationService {
       message: plainToInstance(AssistantMessageDto, assistantMessage, {
         excludeExtraneousValues: true,
       }),
+      suggestion: suggestionDto,
     });
 
     return {
       sessionId: session.id,
       assistantMessageId: assistantMessage.id,
+      outfitSuggestionId: suggestionDto?.id,
     };
   }
 

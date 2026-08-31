@@ -7,6 +7,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { AssistantSessionEntity } from './assistant-session.entity';
+import { AssistantMessageEntity } from './assistant-message.entity';
 
 @Entity({ name: 'assistant_outfit_suggestion' })
 export class AssistantOutfitSuggestionEntity {
@@ -25,6 +26,19 @@ export class AssistantOutfitSuggestionEntity {
   )
   @JoinColumn({ name: 'session_id' })
   session: AssistantSessionEntity;
+
+  /**
+   * The assistant chat message this suggestion was proposed in reply to, so
+   * the client can pair the two. Nullable — the outfit-generation path
+   * (`handleOutfitSuggestion`) does not go through propose_outfit and leaves
+   * this unset.
+   */
+  @Column({ name: 'message_id', nullable: true })
+  messageId?: string;
+
+  @ManyToOne(() => AssistantMessageEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'message_id' })
+  message?: AssistantMessageEntity;
 
   @Column({ type: 'text' })
   summary: string;
