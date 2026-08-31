@@ -14,6 +14,7 @@ export const TOOL_NAMES = {
   getItemDetails: 'get_item_details',
   getWeather: 'get_weather',
   getRecentOutfits: 'get_recent_outfits',
+  proposeOutfit: 'propose_outfit',
 } as const;
 
 /**
@@ -163,6 +164,36 @@ export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
             'How many recent outfit log entries to return. Defaults to 7.',
         },
       },
+    },
+  },
+  {
+    name: TOOL_NAMES.proposeOutfit,
+    description:
+      'Propose a concrete outfit to the user. This is a terminal action: call it only once ' +
+      'you are ready to give the final recommendation, using item ids already confirmed to ' +
+      "exist via search_wardrobe or get_item_details. Every id must belong to the user's own " +
+      'wardrobe or the call is rejected. Calling this ends the conversation turn — nothing ' +
+      'else runs after it succeeds.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        summary: {
+          type: Type.STRING,
+          description:
+            'The outfit recommendation, written as the reply shown to the user.',
+        },
+        itemIds: {
+          type: Type.ARRAY,
+          items: { type: Type.INTEGER },
+          description: 'Wardrobe item ids that make up the outfit.',
+        },
+        rationale: {
+          type: Type.STRING,
+          description:
+            'Brief reasoning for the choice — e.g. weather, occasion, style.',
+        },
+      },
+      required: ['summary', 'itemIds', 'rationale'],
     },
   },
 ];

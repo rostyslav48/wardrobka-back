@@ -238,6 +238,7 @@ describe('ConversationService — handleChat history replay', () => {
 
   let sessionRepo: { findOneBy: jest.Mock; create: jest.Mock; save: jest.Mock };
   let messageRepo: { find: jest.Mock; save: jest.Mock };
+  let outfitRepo: { save: jest.Mock };
   let accountRepo: { findOne: jest.Mock };
   let contextBuilder: {
     fetchReferenceImageUrls: jest.Mock;
@@ -262,6 +263,15 @@ describe('ConversationService — handleChat history replay', () => {
         .fn()
         .mockResolvedValue({ id: 'm1', sessionId, role: 'assistant' }),
     };
+    outfitRepo = {
+      save: jest.fn().mockImplementation((entity) =>
+        Promise.resolve({
+          id: 'suggestion-1',
+          createdAt: new Date('2026-01-01'),
+          ...entity,
+        }),
+      ),
+    };
     accountRepo = {
       findOne: jest
         .fn()
@@ -274,7 +284,9 @@ describe('ConversationService — handleChat history replay', () => {
       executeTool: jest.fn().mockResolvedValue({ items: [] }),
     };
     geminiClient = {
-      generateChatResponse: jest.fn().mockResolvedValue('assistant reply'),
+      generateChatResponse: jest
+        .fn()
+        .mockResolvedValue({ text: 'assistant reply' }),
     };
     webhookQueueService = { scheduleJob: jest.fn().mockResolvedValue(null) };
     configService = {
@@ -285,7 +297,7 @@ describe('ConversationService — handleChat history replay', () => {
     service = new ConversationService(
       sessionRepo as any,
       messageRepo as any,
-      {} as any,
+      outfitRepo as any,
       accountRepo as any,
       contextBuilder as any,
       geminiClient as any,
@@ -402,5 +414,52 @@ describe('ConversationService — handleChat history replay', () => {
       { type: 'jacket' },
       { id: accountId, name: 'Test', email: 't@e.com' },
     );
+  });
+
+  it('a non-outfit answer creates no suggestion row and carries none in the webhook payload', async () => {
+    await service.handleChat(accountId, {
+      prompt: 'how do I remove a stain',
+      sessionId,
+    } as any);
+
+    expect(outfitRepo.save).not.toHaveBeenCalled();
+    const payload = webhookQueueService.scheduleJob.mock.calls[0][1];
+    expect(payload.suggestion).toBeUndefined();
+  });
+
+  it('a propose_outfit result writes the suggestion linked to the assistant message and carries it in the webhook payload', async () => {
+    geminiClient.generateChatResponse.mockResolvedValue({
+      text: 'Wear the navy blazer with chinos',
+      outfitProposal: {
+        summary: 'Wear the navy blazer with chinos',
+        itemIds: [1, 2],
+        rationale: 'mild and dry today',
+      },
+    });
+
+    const result = await service.handleChat(accountId, {
+      prompt: 'what should I wear today',
+      sessionId,
+    } as any);
+
+    expect(outfitRepo.save).toHaveBeenCalledWith({
+      sessionId,
+      messageId: 'm1',
+      summary: 'Wear the navy blazer with chinos',
+      wardrobeItemIds: [1, 2],
+      extraMetadata: { rationale: 'mild and dry today' },
+    });
+
+    const payload = webhookQueueService.scheduleJob.mock.calls[0][1];
+    expect(payload.suggestion).toEqual(
+      expect.objectContaining({
+        id: 'suggestion-1',
+        sessionId,
+        messageId: 'm1',
+        summary: 'Wear the navy blazer with chinos',
+        wardrobeItemIds: [1, 2],
+      }),
+    );
+    expect(result.outfitSuggestionId).toBe('suggestion-1');
   });
 });

@@ -2,6 +2,7 @@ export * from './chat-request.dto';
 export * from './generate-outfit-request.dto';
 export * from './assistant-session.dto';
 export * from './assistant-message.dto';
+export * from './assistant-outfit-suggestion.dto';
 export * from './upsert-webhook-key.dto';
 export * from './recent-suggestion.dto';
 export * from './outfit-suggestions-query.dto';

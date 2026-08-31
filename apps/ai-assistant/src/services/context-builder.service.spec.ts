@@ -362,6 +362,85 @@ describe('ContextBuilderService — tool handlers', () => {
     });
   });
 
+  describe('propose_outfit', () => {
+    it('accepts ids that all belong to the account', async () => {
+      wardrobeSend.mockReturnValue(of([makeItem(1), makeItem(2)]));
+
+      const result = await service.executeTool(
+        'propose_outfit',
+        {
+          summary: 'Navy blazer with chinos',
+          itemIds: [1, 2],
+          rationale: 'mild weather',
+        },
+        account,
+      );
+
+      expect(wardrobeSend).toHaveBeenCalledWith(
+        WARDROBE_REQUESTS.findManyByIds,
+        {
+          data: [1, 2],
+          user: account,
+        },
+      );
+      expect(result).toEqual({
+        ok: true,
+        summary: 'Navy blazer with chinos',
+        rationale: 'mild weather',
+        itemIds: [1, 2],
+      });
+    });
+
+    it('rejects an id that does not belong to the account, without a silent partial success', async () => {
+      // findManyByIds is itself account-scoped, so a foreign id of 99 simply
+      // never comes back — that absence is what the handler treats as rejection.
+      wardrobeSend.mockReturnValue(of([makeItem(1)]));
+
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [1, 99], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('99');
+      expect(result.error).not.toContain('ok');
+    });
+
+    it('rejects an empty itemIds array before calling the wardrobe service', async () => {
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toBeDefined();
+      expect(wardrobeSend).not.toHaveBeenCalled();
+    });
+
+    it('rejects a blank summary before calling the wardrobe service', async () => {
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: '   ', itemIds: [1], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toBeDefined();
+      expect(wardrobeSend).not.toHaveBeenCalled();
+    });
+
+    it('de-duplicates repeated item ids', async () => {
+      wardrobeSend.mockReturnValue(of([makeItem(1)]));
+
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [1, 1], rationale: 'reason' },
+        account,
+      )) as { itemIds: number[] };
+
+      expect(result.itemIds).toEqual([1]);
+    });
+  });
+
   it('reports an unknown tool name back to the model instead of throwing', async () => {
     const result = (await service.executeTool(
       'drop_wardrobe',
