@@ -13,6 +13,7 @@ import {
   AssistantWebhookJobEntity,
 } from '@app/common/database/entities/assistant';
 import { UserAccountEntity } from '@app/common/database/entities/auth';
+import { GoogleCalendarCredentialEntity } from '@app/common/database/entities/calendar';
 import {
   MEDIA_STORAGE_SERVICE,
   WARDROBE_SERVICE,
@@ -26,6 +27,9 @@ import { WeatherService } from './services/weather.service';
 import { WebhookQueueService } from './services/webhook-queue.service';
 import { WebhookDispatcherJob } from './jobs/webhook-dispatcher.job';
 import { WebhookHttpService } from './webhook/webhook-http.service';
+import { CalendarController } from './calendar/calendar.controller';
+import { GoogleOAuthService } from './calendar/google-oauth.service';
+import { GoogleTokenService } from './calendar/google-token.service';
 
 @Module({
   imports: [
@@ -53,6 +57,17 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
         WEBHOOK_MAX_ATTEMPTS: Joi.number().default(5),
         WEBHOOK_RETRY_INTERVAL_MS: Joi.number().default(60000),
         OPENWEATHERMAP_API_KEY: Joi.string().optional().allow(''),
+        // Every GOOGLE_* variable is optional, following OPENWEATHERMAP_API_KEY:
+        // ai-assistant must boot for anyone who has not done the Google Console
+        // setup, reporting every user as disconnected.
+        GOOGLE_OAUTH_CLIENT_ID: Joi.string().optional().allow(''),
+        GOOGLE_OAUTH_CLIENT_SECRET: Joi.string().optional().allow(''),
+        GOOGLE_OAUTH_REDIRECT_URI: Joi.string().optional().allow(''),
+        GOOGLE_OAUTH_APP_REDIRECT: Joi.string().optional().allow(''),
+        GOOGLE_CALENDAR_CACHE_TTL_MS: Joi.number()
+          .integer()
+          .min(0)
+          .optional(),
       }),
     }),
     ScheduleModule.forRoot(),
@@ -63,11 +78,12 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
       AssistantOutfitSuggestionEntity,
       AssistantWebhookJobEntity,
       UserAccountEntity,
+      GoogleCalendarCredentialEntity,
     ]),
     RmqModule.register({ name: WARDROBE_SERVICE }),
     RmqModule.register({ name: MEDIA_STORAGE_SERVICE }),
   ],
-  controllers: [AiAssistantController],
+  controllers: [AiAssistantController, CalendarController],
   providers: [
     ConversationService,
     GeminiClientService,
@@ -77,6 +93,8 @@ import { WebhookHttpService } from './webhook/webhook-http.service';
     WebhookDispatcherJob,
     WebhookHttpService,
     HttpService,
+    GoogleOAuthService,
+    GoogleTokenService,
   ],
 })
 export class AiAssistantModule {}
