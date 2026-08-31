@@ -23,6 +23,7 @@ import { AiAssistantController } from './controllers/ai-assistant.controller';
 import { ConversationService } from './services/conversation.service';
 import { GeminiClientService } from './services/gemini-client.service';
 import { ContextBuilderService } from './services/context-builder.service';
+import { ImageAnalyzerService } from './services/image-analyzer.service';
 import { WeatherService } from './services/weather.service';
 import { WebhookQueueService } from './services/webhook-queue.service';
 import { WebhookDispatcherJob } from './jobs/webhook-dispatcher.job';
@@ -53,6 +54,10 @@ import { GoogleTokenService } from './calendar/google-token.service';
         AI_MAX_TOOL_CALLS: Joi.number().integer().min(1).default(8),
         AI_TOOL_ROW_LIMIT: Joi.number().integer().min(1).default(100),
         AI_WEATHER_CACHE_TTL_MS: Joi.number().integer().min(0).default(600000),
+        GEMINI_ANALYZE_TIMEOUT_MS: Joi.number()
+          .integer()
+          .min(1000)
+          .default(15000),
         AI_ASSISTANT_WEBHOOK_URL: Joi.string().uri().required(),
         AI_ASSISTANT_WEBHOOK_AUTH_HEADER: Joi.string().required(),
         WEBHOOK_MAX_ATTEMPTS: Joi.number().default(5),
@@ -89,6 +94,7 @@ import { GoogleTokenService } from './calendar/google-token.service';
     ConversationService,
     GeminiClientService,
     ContextBuilderService,
+    ImageAnalyzerService,
     WeatherService,
     WebhookQueueService,
     WebhookDispatcherJob,

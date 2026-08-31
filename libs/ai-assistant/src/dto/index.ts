@@ -6,3 +6,5 @@ export * from './assistant-outfit-suggestion.dto';
 export * from './upsert-webhook-key.dto';
 export * from './recent-suggestion.dto';
 export * from './outfit-suggestions-query.dto';
+export * from './analyze-image-request.dto';
+export * from './analyzed-image-attributes.dto';
