@@ -160,6 +160,27 @@ describe('ConversationService — getOutfitSuggestions', () => {
       accountId: otherSession.accountId,
     });
   });
+
+  it('surfaces extraMetadata.proposed on the DTO so fallback rows are distinguishable', async () => {
+    const session = makeSession('s1', accountId);
+    const proposedRow = {
+      ...makeSuggestion('proposed', session),
+      extraMetadata: { proposed: true },
+    };
+    const fallbackRow = {
+      ...makeSuggestion('fallback', session),
+      extraMetadata: { proposed: false },
+    };
+    const legacyRow = makeSuggestion('legacy', session);
+    const qb = makeQueryBuilder([proposedRow, fallbackRow, legacyRow]);
+    outfitRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const result = await service.getOutfitSuggestions(accountId);
+
+    expect(result.find((r) => r.id === 'proposed')?.proposed).toBe(true);
+    expect(result.find((r) => r.id === 'fallback')?.proposed).toBe(false);
+    expect(result.find((r) => r.id === 'legacy')?.proposed).toBeUndefined();
+  });
 });
 
 describe('ConversationService — deleteOutfitSuggestion', () => {

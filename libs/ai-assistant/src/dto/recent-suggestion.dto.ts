@@ -1,4 +1,4 @@
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 export class RecentSuggestionDto {
   @Expose()
@@ -15,6 +15,12 @@ export class RecentSuggestionDto {
 
   @Expose()
   wardrobeItemIds: number[];
+
+  // Read from extraMetadata.proposed. Undefined on rows written before this
+  // flag existed — a missing key means unknown/legacy, not "not proposed".
+  @Expose()
+  @Transform(({ obj }) => obj.extraMetadata?.proposed, { toClassOnly: true })
+  proposed?: boolean;
 
   @Expose()
   createdAt: Date;
