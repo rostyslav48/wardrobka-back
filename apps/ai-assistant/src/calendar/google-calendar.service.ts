@@ -235,10 +235,14 @@ export class GoogleCalendarService {
     return [
       date,
       time,
-      event.title,
-      event.location ?? '',
+      this.sanitizeRowField(event.title),
+      this.sanitizeRowField(event.location ?? ''),
       String(event.attendeeCount),
     ].join('|');
+  }
+
+  private sanitizeRowField(value: string): string {
+    return value.replace(/\|/g, '/');
   }
 
   private toOccasion(event: MappedEvent): CalendarOccasion {

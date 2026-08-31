@@ -92,6 +92,33 @@ describe('GoogleCalendarService', () => {
     );
   });
 
+  it('sanitizes pipe characters in summary and location so the row always has exactly five fields', async () => {
+    httpGet.mockReturnValueOnce(
+      of({
+        items: [
+          {
+            id: 'evt-2',
+            summary: 'Lunch | Bob',
+            start: { dateTime: '2026-01-02T12:00:00+00:00' },
+            end: { dateTime: '2026-01-02T13:00:00+00:00' },
+            location: 'Bar|Grill',
+            status: 'confirmed',
+            eventType: 'default',
+            attendees: [{ responseStatus: 'accepted' }],
+          },
+        ],
+      }),
+    );
+
+    const result = await service.getEvents(1, 2);
+
+    expect(result.rows[0].split('|')).toHaveLength(5);
+    expect(result).toEqual({
+      connected: true,
+      rows: ['2026-01-02|12:00|Lunch / Bob|Bar/Grill|1'],
+    });
+  });
+
   it('renders all-day events as "all-day" and derives attendeeCount from attendees.length, with no attendee identity in the output', async () => {
     httpGet.mockReturnValueOnce(
       of({
