@@ -1,35 +1,69 @@
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ClientProxy } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 
 import { UserAccountEntity } from '@app/common/database/entities/auth';
+import {
+  OUTFIT_LOG_REQUESTS,
+  SWATCHES,
+  WARDROBE_PREVIEW_SELECT,
+  WARDROBE_REQUESTS,
+} from '@app/wardrobe/constants';
 
 import { ContextBuilderService } from './context-builder.service';
 import { WeatherService } from './weather.service';
+import { getCurrentSeason } from './current-season.util';
 import { WeatherContext } from '../types/weather-context.type';
 
 const makeItem = (
   id: number,
-  overrides: Partial<{ favourite: boolean; name: string }> = {},
+  overrides: Partial<{ favourite: boolean; name: string; color: string }> = {},
 ) => ({
   id,
   name: overrides.name ?? `item-${id}`,
   type: 't-shirt',
-  color: 'black',
+  color: overrides.color ?? '#111111',
   season: 'spring',
   status: 'active',
   favorite: overrides.favourite ?? false,
   favourite: overrides.favourite ?? false,
 });
 
-describe('ContextBuilderService', () => {
+/**
+ * Projects a hand-written fixture down to what actually crosses RMQ:
+ * `WardrobeService.findAll` loads only `WARDROBE_PREVIEW_SELECT`, so any field
+ * outside that list arrives `undefined` however rich the entity is. Specs that
+ * hand-write a full item silently pass while the wire shape is missing a field.
+ */
+const asWirePreview = (item: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(item).filter(([key]) =>
+      (WARDROBE_PREVIEW_SELECT as string[]).includes(key),
+    ),
+  );
+
+describe('ContextBuilderService — tool handlers', () => {
   const account = { id: 42, name: 'Test', email: 't@e.com' };
   let wardrobeSend: jest.Mock;
   let wardrobeClient: ClientProxy;
   let mediaClient: ClientProxy;
   let accountRepo: { findOne: jest.Mock };
   let weatherService: { getForecast: jest.Mock };
+  let configValues: Record<string, unknown>;
   let service: ContextBuilderService;
+
+  const build = () =>
+    new ContextBuilderService(
+      wardrobeClient,
+      mediaClient,
+      accountRepo as unknown as Repository<UserAccountEntity>,
+      weatherService as unknown as WeatherService,
+      {
+        get: (key: string, fallback?: unknown) =>
+          key in configValues ? configValues[key] : fallback,
+      } as unknown as ConfigService,
+    );
 
   beforeEach(() => {
     wardrobeSend = jest.fn();
@@ -37,80 +71,358 @@ describe('ContextBuilderService', () => {
     mediaClient = { send: jest.fn() } as unknown as ClientProxy;
     accountRepo = { findOne: jest.fn() };
     weatherService = { getForecast: jest.fn() };
-    service = new ContextBuilderService(
-      wardrobeClient,
-      mediaClient,
-      accountRepo as unknown as Repository<UserAccountEntity>,
-      weatherService as unknown as WeatherService,
-    );
+    configValues = {};
+    service = build();
   });
 
-  it('returns weather and active items when everything is available', async () => {
+  describe('search_wardrobe', () => {
+    it('returns compact rows carrying the item id, plus total and truncated', async () => {
+      wardrobeSend.mockReturnValue(of([makeItem(1), makeItem(2)]));
+
+      const result = await service.executeTool(
+        'search_wardrobe',
+        { type: 't-shirt' },
+        account,
+      );
+
+      expect(result).toEqual({
+        items: [
+          {
+            id: 1,
+            name: 'item-1',
+            type: 't-shirt',
+            color: 'Black',
+            season: 'spring',
+            status: 'active',
+          },
+          {
+            id: 2,
+            name: 'item-2',
+            type: 't-shirt',
+            color: 'Black',
+            season: 'spring',
+            status: 'active',
+          },
+        ],
+        total: 2,
+        truncated: false,
+      });
+    });
+
+    it('signals truncation with the true total when the result set exceeds the row cap', async () => {
+      configValues.AI_TOOL_ROW_LIMIT = 3;
+      service = build();
+      wardrobeSend.mockReturnValue(
+        of(Array.from({ length: 40 }, (_, i) => makeItem(i + 1))),
+      );
+
+      const result = (await service.executeTool(
+        'search_wardrobe',
+        {},
+        account,
+      )) as { items: unknown[]; total: number; truncated: boolean };
+
+      expect(result.items).toHaveLength(3);
+      expect(result.total).toBe(40);
+      expect(result.truncated).toBe(true);
+    });
+
+    it('never returns more than the row cap even when the model asks for more', async () => {
+      configValues.AI_TOOL_ROW_LIMIT = 2;
+      service = build();
+      wardrobeSend.mockReturnValue(
+        of(Array.from({ length: 10 }, (_, i) => makeItem(i + 1))),
+      );
+
+      const result = (await service.executeTool(
+        'search_wardrobe',
+        { limit: 500 },
+        account,
+      )) as { items: unknown[]; truncated: boolean };
+
+      expect(result.items).toHaveLength(2);
+      expect(result.truncated).toBe(true);
+    });
+
+    it('maps a swatch label to the exact stored hex through SWATCHES', async () => {
+      wardrobeSend.mockReturnValue(of([]));
+
+      await service.executeTool('search_wardrobe', { color: 'Navy' }, account);
+
+      const navyHex = SWATCHES.find((s) => s.label === 'Navy')?.hex;
+      expect(wardrobeSend).toHaveBeenCalledWith(WARDROBE_REQUESTS.findMany, {
+        data: { color: navyHex },
+        user: account,
+      });
+    });
+
+    it('accepts a valid label that matches nothing in the wardrobe and returns an empty result', async () => {
+      wardrobeSend.mockReturnValue(of([]));
+
+      const result = await service.executeTool(
+        'search_wardrobe',
+        { color: 'Purple' },
+        account,
+      );
+
+      expect(result).toEqual({ items: [], total: 0, truncated: false });
+    });
+
+    it('rejects a colour outside the palette without hitting the wardrobe service', async () => {
+      const result = (await service.executeTool(
+        'search_wardrobe',
+        { color: 'chartreuse' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('chartreuse');
+      expect(wardrobeSend).not.toHaveBeenCalled();
+    });
+
+    it('binds accountId server-side and ignores one supplied by the model', async () => {
+      wardrobeSend.mockReturnValue(of([]));
+
+      await service.executeTool(
+        'search_wardrobe',
+        { accountId: 999, type: 'jacket' },
+        account,
+      );
+
+      expect(wardrobeSend).toHaveBeenCalledWith(WARDROBE_REQUESTS.findMany, {
+        data: { type: 'jacket' },
+        user: account,
+      });
+    });
+
+    it('returns an error result rather than throwing when the RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = (await service.executeTool(
+        'search_wardrobe',
+        {},
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('rmq down');
+    });
+  });
+
+  describe('get_item_details', () => {
+    it('fetches full records by id, scoped to the account', async () => {
+      wardrobeSend.mockReturnValue(of([makeItem(3)]));
+
+      const result = (await service.executeTool(
+        'get_item_details',
+        { ids: [3] },
+        account,
+      )) as { items: unknown[]; total: number };
+
+      expect(wardrobeSend).toHaveBeenCalledWith(
+        WARDROBE_REQUESTS.findManyByIds,
+        { data: [3], user: account },
+      );
+      expect(result.total).toBe(1);
+    });
+
+    it('returns an empty result for no ids without calling the wardrobe service', async () => {
+      const result = await service.executeTool(
+        'get_item_details',
+        { ids: [] },
+        account,
+      );
+
+      expect(result).toEqual({ items: [], total: 0, truncated: false });
+      expect(wardrobeSend).not.toHaveBeenCalled();
+    });
+
+    it('returns an error result rather than throwing when the RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = (await service.executeTool(
+        'get_item_details',
+        { ids: [1] },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('rmq down');
+    });
+  });
+
+  describe('get_weather', () => {
     const weather: WeatherContext = {
       city: 'Kyiv',
       temperatureCelsius: 10,
       condition: 'clear',
       humidity: 55,
       windSpeed: 3,
-      dailyForecast: [],
+      dailyForecast: [
+        {
+          date: '2026-01-01',
+          temperatureCelsius: 1,
+          condition: 'snow',
+          humidity: 80,
+          windSpeed: 2,
+        },
+        {
+          date: '2026-01-02',
+          temperatureCelsius: 2,
+          condition: 'snow',
+          humidity: 80,
+          windSpeed: 2,
+        },
+        {
+          date: '2026-01-03',
+          temperatureCelsius: 3,
+          condition: 'snow',
+          humidity: 80,
+          windSpeed: 2,
+        },
+      ],
     };
 
-    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
-    weatherService.getForecast.mockReturnValue(of(weather));
-    wardrobeSend.mockReturnValue(of([makeItem(1), makeItem(2)]));
+    it('returns the forecast for the account city', async () => {
+      accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
+      weatherService.getForecast.mockReturnValue(of(weather));
 
-    const result = await service.buildContext(account, {});
+      const result = (await service.executeTool(
+        'get_weather',
+        {},
+        account,
+      )) as { weather: WeatherContext };
 
-    expect(result.weather).toEqual(weather);
-    expect(result.activeWardrobeItems).toHaveLength(2);
-    expect(weatherService.getForecast).toHaveBeenCalledWith('Kyiv');
+      expect(weatherService.getForecast).toHaveBeenCalledWith('Kyiv');
+      expect(result.weather).toEqual(weather);
+    });
+
+    it('trims the daily forecast to the requested number of days', async () => {
+      accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
+      weatherService.getForecast.mockReturnValue(of(weather));
+
+      const result = (await service.executeTool(
+        'get_weather',
+        { days: 2 },
+        account,
+      )) as { weather: WeatherContext };
+
+      expect(result.weather.dailyForecast).toHaveLength(2);
+    });
+
+    it('reports no forecast, without an error, when the account has no city', async () => {
+      accountRepo.findOne.mockResolvedValue({ id: 42, city: null });
+
+      const result = (await service.executeTool(
+        'get_weather',
+        {},
+        account,
+      )) as {
+        weather: null;
+        note: string;
+      };
+
+      expect(result.weather).toBeNull();
+      expect(result.note).toContain('no city');
+      expect(weatherService.getForecast).not.toHaveBeenCalled();
+    });
   });
 
-  it('caps active items at 50 with favourites selected first', async () => {
-    const items = [
-      ...Array.from({ length: 10 }, (_, i) =>
-        makeItem(i + 1, { favourite: true }),
-      ),
-      ...Array.from({ length: 100 }, (_, i) => makeItem(i + 100)),
-    ];
+  describe('get_recent_outfits', () => {
+    it('resolves logged item ids to names, scoped to the account', async () => {
+      wardrobeSend.mockImplementation((pattern: string) =>
+        pattern === OUTFIT_LOG_REQUESTS.findMany
+          ? of([{ date: Date.UTC(2026, 0, 5), wardrobeItemIds: [1] }])
+          : of([makeItem(1, { name: 'navy blazer' })]),
+      );
 
+      const result = (await service.executeTool(
+        'get_recent_outfits',
+        { limit: 3 },
+        account,
+      )) as { outfits: { date: string; itemNames: string[] }[]; total: number };
+
+      expect(wardrobeSend).toHaveBeenCalledWith(OUTFIT_LOG_REQUESTS.findMany, {
+        data: { limit: 3 },
+        user: account,
+      });
+      expect(result.outfits).toEqual([
+        { date: '2026-01-05', itemNames: ['navy blazer'] },
+      ]);
+      expect(result.total).toBe(1);
+    });
+
+    it('returns an empty list when there are no logs', async () => {
+      wardrobeSend.mockReturnValue(of([]));
+
+      const result = await service.executeTool(
+        'get_recent_outfits',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({ outfits: [], total: 0 });
+    });
+  });
+
+  it('reports an unknown tool name back to the model instead of throwing', async () => {
+    const result = (await service.executeTool(
+      'drop_wardrobe',
+      {},
+      account,
+    )) as {
+      error: string;
+    };
+
+    expect(result.error).toContain('drop_wardrobe');
+  });
+});
+
+describe('ContextBuilderService — buildSeedSummary', () => {
+  const account = { id: 42, name: 'Test', email: 't@e.com' };
+  let wardrobeSend: jest.Mock;
+  let accountRepo: { findOne: jest.Mock };
+  let service: ContextBuilderService;
+
+  beforeEach(() => {
+    wardrobeSend = jest.fn();
+    accountRepo = { findOne: jest.fn() };
+    service = new ContextBuilderService(
+      { send: wardrobeSend } as unknown as ClientProxy,
+      { send: jest.fn() } as unknown as ClientProxy,
+      accountRepo as unknown as Repository<UserAccountEntity>,
+      { getForecast: jest.fn() } as unknown as WeatherService,
+      {
+        get: (_: string, fallback?: unknown) => fallback,
+      } as unknown as ConfigService,
+    );
+  });
+
+  it('reports counts by type and status, the account city and the season as a hint', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(
+      of([
+        { id: 1, type: 'jacket', status: 'active' },
+        { id: 2, type: 'jacket', status: 'washing' },
+        { id: 3, type: 'jeans', status: 'active' },
+      ]),
+    );
+
+    const summary = await service.buildSeedSummary(account);
+
+    expect(summary).toContain('Total items: 3');
+    expect(summary).toContain('By type: jacket 2, jeans 1');
+    expect(summary).toContain('By status: active 2, washing 1');
+    expect(summary).toContain('Account city: Lviv');
+    expect(summary).toContain(`Calendar season hint: ${getCurrentSeason()}`);
+    expect(summary).toContain('not a filter');
+  });
+
+  it('still produces a summary when the wardrobe service is unreachable', async () => {
     accountRepo.findOne.mockResolvedValue({ id: 42, city: null });
-    wardrobeSend.mockReturnValue(of(items));
+    wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
 
-    const result = await service.buildContext(account, {});
+    const summary = await service.buildSeedSummary(account);
 
-    expect(result.activeWardrobeItems).toHaveLength(50);
-    const favouriteCount = result.activeWardrobeItems.filter(
-      (it) => it.favourite,
-    ).length;
-    expect(favouriteCount).toBe(10);
-  });
-
-  it('omits weather when city is null', async () => {
-    accountRepo.findOne.mockResolvedValue({ id: 42, city: null });
-    wardrobeSend.mockReturnValue(of([]));
-
-    const result = await service.buildContext(account, {});
-
-    expect(result.weather).toBeNull();
-    expect(weatherService.getForecast).not.toHaveBeenCalled();
-  });
-
-  it('omits weather when WeatherService returns null', async () => {
-    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Kyiv' });
-    weatherService.getForecast.mockReturnValue(of(null));
-    wardrobeSend.mockReturnValue(of([]));
-
-    const result = await service.buildContext(account, {});
-    expect(result.weather).toBeNull();
-  });
-
-  it('returns empty active items when wardrobe has none', async () => {
-    accountRepo.findOne.mockResolvedValue({ id: 42, city: null });
-    wardrobeSend.mockReturnValue(of([]));
-
-    const result = await service.buildContext(account, {});
-    expect(result.activeWardrobeItems).toEqual([]);
+    expect(summary).toContain('Total items: 0');
+    expect(summary).toContain('Account city: not set');
   });
 });
 
@@ -138,6 +450,9 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
       mediaClient,
       accountRepo as unknown as Repository<UserAccountEntity>,
       weatherService as unknown as WeatherService,
+      {
+        get: (_: string, fallback?: unknown) => fallback,
+      } as unknown as ConfigService,
     );
     fetchMock = jest.fn();
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -278,5 +593,85 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
     const result = await service.fetchReferenceImageParts([]);
     expect(result).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ContextBuilderService — pinned to the findAll select list', () => {
+  const account = { id: 42, name: 'Test', email: 't@e.com' };
+  let wardrobeSend: jest.Mock;
+  let accountRepo: { findOne: jest.Mock };
+  let service: ContextBuilderService;
+
+  beforeEach(() => {
+    wardrobeSend = jest.fn();
+    accountRepo = { findOne: jest.fn() };
+    service = new ContextBuilderService(
+      { send: wardrobeSend } as unknown as ClientProxy,
+      { send: jest.fn() } as unknown as ClientProxy,
+      accountRepo as unknown as Repository<UserAccountEntity>,
+      { getForecast: jest.fn() } as unknown as WeatherService,
+      {
+        get: (_: string, fallback?: unknown) => fallback,
+      } as unknown as ConfigService,
+    );
+  });
+
+  it('populates every search_wardrobe row field from a column findAll selects', async () => {
+    wardrobeSend.mockReturnValue(
+      of([
+        asWirePreview({
+          id: 7,
+          name: 'Navy Blazer',
+          type: 'jacket',
+          color: '#1B2A4A',
+          season: 'winter',
+          status: 'washing',
+          size: 'm',
+          favourite: false,
+        }),
+      ]),
+    );
+
+    const result = (await service.executeTool(
+      'search_wardrobe',
+      {},
+      account,
+    )) as { items: Record<string, unknown>[] };
+    const [row] = result.items;
+
+    // Every key the row exposes must come from a selected column, and must
+    // carry a real value — `status: null` is exactly the drift this pins.
+    for (const [key, value] of Object.entries(row)) {
+      expect(WARDROBE_PREVIEW_SELECT).toContain(key);
+      expect(value).not.toBeNull();
+    }
+
+    expect(row).toEqual({
+      id: 7,
+      name: 'Navy Blazer',
+      type: 'jacket',
+      color: 'Navy',
+      season: 'winter',
+      status: 'washing',
+    });
+  });
+
+  it('counts by status in the seed summary from a column findAll selects', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(
+      of([
+        asWirePreview({ id: 1, type: 'jacket', status: 'washing' }),
+        asWirePreview({ id: 2, type: 'jeans', status: 'active' }),
+      ]),
+    );
+
+    const summary = await service.buildSeedSummary(account);
+    const statusLine = summary
+      .split('\n')
+      .find((line) => line.startsWith('- By status:'));
+
+    expect(statusLine).toContain('washing 1');
+    expect(statusLine).toContain('active 1');
+    expect(statusLine).not.toContain('none');
   });
 });
