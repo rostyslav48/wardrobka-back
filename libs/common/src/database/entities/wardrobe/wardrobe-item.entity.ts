@@ -70,4 +70,19 @@ export class WardrobeItemEntity {
   // Unrelated to `status` above — see the ImageStatus enum.
   @Column({ name: 'image_status', length: 20, default: 'ready' })
   image_status: string;
+
+  // The tmp/ object a generation job reads from. Retained while the item is
+  // `pending` and after a failure — that is what makes "Generate again" work
+  // without re-picking the photo — and cleared once a generated image lands.
+  @Column({ name: 'temp_image_key', length: 512, nullable: true })
+  temp_image_key?: string | null;
+
+  // When the current generation job was queued. The staleness sweep measures
+  // this; the table carries no other timestamp.
+  @Column({
+    name: 'image_pending_since',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  image_pending_since?: Date | null;
 }

@@ -46,6 +46,17 @@ export class MediaStorageController {
     return urls.reduce((acc, { url, id }) => ({ ...acc, [id]: url }), {});
   }
 
+  @MessagePattern(MEDIA_STORAGE_REQUESTS.exists)
+  async exists(
+    @Ctx() context: RmqContext,
+    @Body() { filePath }: { filePath: string },
+  ): Promise<boolean> {
+    const res = await this.mediaStorageService.exists(filePath);
+    this.rmqService.ack(context);
+
+    return res;
+  }
+
   @MessagePattern(MEDIA_STORAGE_REQUESTS.delete)
   async delete(
     @Ctx() context: RmqContext,

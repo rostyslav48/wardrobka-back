@@ -27,6 +27,7 @@ import {
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ImageUploadValidationPipe } from '@app/wardrobe-api-gateway/wardrobe/validators';
 import { CurrentUser } from '@app/wardrobe-api-gateway/auth/decorators';
+import { IMAGE_GENERATION_THROTTLE } from '@app/wardrobe-api-gateway/wardrobe/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('wardrobe')
@@ -36,7 +37,7 @@ export class WardrobeController {
   @Post()
   @UseInterceptors(FileInterceptor('image'))
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { ttl: 5000, limit: 1 } })
+  @Throttle(IMAGE_GENERATION_THROTTLE)
   create(
     @Body() createWardrobeDto: CreateWardrobeItemRequestDto,
     @CurrentUser() user: UserAccountPreview,
@@ -75,6 +76,20 @@ export class WardrobeController {
   @Delete(':id')
   delete(@Param('id') id: string, @CurrentUser() user: UserAccountPreview) {
     return this.wardrobeService.delete(+id, user);
+  }
+
+  /**
+   * "Generate again" for an item whose generation failed. Same throttle as
+   * create: it starts the same paid job, so it cannot be the cheap way in.
+   */
+  @Post(':id/generate-image')
+  @UseGuards(ThrottlerGuard)
+  @Throttle(IMAGE_GENERATION_THROTTLE)
+  retryImageGeneration(
+    @Param('id') id: string,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.wardrobeService.retryImageGeneration(+id, user);
   }
 
   @Post('analyze-image')

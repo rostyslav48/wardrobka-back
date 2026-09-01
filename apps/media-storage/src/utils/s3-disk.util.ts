@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
   GetBucketLifecycleConfigurationCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   LifecycleRule,
   PutBucketLifecycleConfigurationCommand,
   PutObjectCommand,
@@ -113,9 +114,41 @@ export class S3DiskUtil implements DiskUtil {
     } catch (error) {
       // A bucket with no configuration at all answers NoSuchLifecycleConfiguration;
       // that is the empty set, not a failure.
-      if ((error as { name?: string })?.name === 'NoSuchLifecycleConfiguration') {
+      if (
+        (error as { name?: string })?.name === 'NoSuchLifecycleConfiguration'
+      ) {
         return [];
       }
+      throw error;
+    }
+  }
+
+  /**
+   * HeadObject rather than GetObject: the caller only needs to know whether a
+   * retained original survived the tmp/ lifecycle rule, and downloading it to
+   * find out would move a phone photo through this service for nothing.
+   */
+  public async exists(filePath: string): Promise<boolean> {
+    try {
+      await this.s3Client.send(
+        new HeadObjectCommand({
+          Bucket: this.bucketName,
+          Key: filePath,
+        }),
+      );
+
+      return true;
+    } catch (error) {
+      const name = (error as { name?: string })?.name;
+      const statusCode = (error as { $metadata?: { httpStatusCode?: number } })
+        ?.$metadata?.httpStatusCode;
+
+      if (name === 'NotFound' || name === 'NoSuchKey' || statusCode === 404) {
+        return false;
+      }
+
+      // A permissions or network failure is not an answer. Reporting it as
+      // "gone" would send the user off to re-pick a photo that is still there.
       throw error;
     }
   }

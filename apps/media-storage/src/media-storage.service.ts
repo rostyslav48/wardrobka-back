@@ -76,4 +76,8 @@ export class MediaStorageService implements OnModuleInit {
   public delete(filePath: string): Promise<boolean> {
     return this.Disk.delete(filePath);
   }
+
+  public exists(filePath: string): Promise<boolean> {
+    return this.Disk.exists(filePath);
+  }
 }

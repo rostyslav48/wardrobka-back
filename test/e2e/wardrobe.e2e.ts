@@ -27,7 +27,9 @@ test.describe('GET /wardrobe', () => {
   });
 
   test('returns only the caller’s items', async ({ request }) => {
-    const mine = await (await request.get('/wardrobe', { headers: auth(owner) })).json();
+    const mine = await (
+      await request.get('/wardrobe', { headers: auth(owner) })
+    ).json();
     expect(Array.isArray(mine)).toBe(true);
     expect(mine.map((i: any) => i.id)).toContain(itemId);
 
@@ -38,12 +40,16 @@ test.describe('GET /wardrobe', () => {
   });
 
   test('filters by an enum field', async ({ request }) => {
-    const res = await request.get('/wardrobe?season=winter', { headers: auth(owner) });
+    const res = await request.get('/wardrobe?season=winter', {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(200);
     for (const item of await res.json()) expect(item.season).toBe('winter');
   });
 
-  test('a filter that matches nothing returns an empty list', async ({ request }) => {
+  test('a filter that matches nothing returns an empty list', async ({
+    request,
+  }) => {
     const res = await request.get('/wardrobe?season=summer&type=dress', {
       headers: auth(owner),
     });
@@ -52,24 +58,34 @@ test.describe('GET /wardrobe', () => {
   });
 
   test('rejects an invalid enum value with 400', async ({ request }) => {
-    const res = await request.get('/wardrobe?season=monsoon', { headers: auth(owner) });
+    const res = await request.get('/wardrobe?season=monsoon', {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(400);
   });
 
   test('rejects an unknown query parameter with 400', async ({ request }) => {
-    const res = await request.get('/wardrobe?bogusParam=1', { headers: auth(owner) });
+    const res = await request.get('/wardrobe?bogusParam=1', {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(400);
   });
 
-  test('the favourite filter accepts a boolean-ish query string', async ({ request }) => {
-    const res = await request.get('/wardrobe?favourite=true', { headers: auth(owner) });
+  test('the favourite filter accepts a boolean-ish query string', async ({
+    request,
+  }) => {
+    const res = await request.get('/wardrobe?favourite=true', {
+      headers: auth(owner),
+    });
     expect(res.status(), await res.text()).toBe(200);
   });
 
   test('favourite=false must not be silently treated as favourite=true', async ({
     request,
   }) => {
-    const res = await request.get('/wardrobe?favourite=false', { headers: auth(owner) });
+    const res = await request.get('/wardrobe?favourite=false', {
+      headers: auth(owner),
+    });
     expect(res.status(), await res.text()).toBe(200);
     for (const item of await res.json()) expect(item.favourite).toBe(false);
   });
@@ -77,7 +93,9 @@ test.describe('GET /wardrobe', () => {
 
 test.describe('GET /wardrobe/:id', () => {
   test('returns the item to its owner', async ({ request }) => {
-    const res = await request.get(`/wardrobe/${itemId}`, { headers: auth(owner) });
+    const res = await request.get(`/wardrobe/${itemId}`, {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.id).toBe(itemId);
@@ -85,18 +103,27 @@ test.describe('GET /wardrobe/:id', () => {
   });
 
   test('does not expose another user’s item (IDOR)', async ({ request }) => {
-    const res = await request.get(`/wardrobe/${itemId}`, { headers: auth(stranger) });
+    const res = await request.get(`/wardrobe/${itemId}`, {
+      headers: auth(stranger),
+    });
     expect([403, 404]).toContain(res.status());
   });
 
   test('returns 404 for an id that does not exist', async ({ request }) => {
-    const res = await request.get('/wardrobe/99999999', { headers: auth(owner) });
+    const res = await request.get('/wardrobe/99999999', {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(404);
   });
 
   test('handles a non-numeric id without a 500', async ({ request }) => {
-    const res = await request.get('/wardrobe/not-a-number', { headers: auth(owner) });
-    expect(res.status(), 'a bad path param should be a 4xx, never a 500').toBeLessThan(500);
+    const res = await request.get('/wardrobe/not-a-number', {
+      headers: auth(owner),
+    });
+    expect(
+      res.status(),
+      'a bad path param should be a 4xx, never a 500',
+    ).toBeLessThan(500);
   });
 });
 
@@ -151,10 +178,12 @@ test.describe('POST /wardrobe', () => {
         season: 'summer',
         size,
       });
-      expect(res.status(), `size "${size}" was rejected: ${await res.text()}`).toBe(201);
+      expect(
+        res.status(),
+        `size "${size}" was rejected: ${await res.text()}`,
+      ).toBe(201);
     }
   });
-
 });
 
 test.describe('PATCH /wardrobe/:id', () => {
@@ -200,23 +229,95 @@ test.describe('PATCH /wardrobe/:id', () => {
 
 test.describe('DELETE /wardrobe/:id', () => {
   test('cannot delete another user’s item', async ({ request }) => {
-    const res = await request.delete(`/wardrobe/${itemId}`, { headers: auth(stranger) });
+    const res = await request.delete(`/wardrobe/${itemId}`, {
+      headers: auth(stranger),
+    });
     expect([403, 404]).toContain(res.status());
     expect(
-      (await request.get(`/wardrobe/${itemId}`, { headers: auth(owner) })).status(),
+      (
+        await request.get(`/wardrobe/${itemId}`, { headers: auth(owner) })
+      ).status(),
     ).toBe(200);
   });
 
   test('deletes the caller’s own item', async ({ request }) => {
-    const res = await request.delete(`/wardrobe/${itemId}`, { headers: auth(owner) });
+    const res = await request.delete(`/wardrobe/${itemId}`, {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(200);
     expect(
-      (await request.get(`/wardrobe/${itemId}`, { headers: auth(owner) })).status(),
+      (
+        await request.get(`/wardrobe/${itemId}`, { headers: auth(owner) })
+      ).status(),
     ).toBe(404);
   });
 
   test('deleting an already-deleted item returns 404', async ({ request }) => {
-    const res = await request.delete(`/wardrobe/${itemId}`, { headers: auth(owner) });
+    const res = await request.delete(`/wardrobe/${itemId}`, {
+      headers: auth(owner),
+    });
     expect(res.status()).toBe(404);
+  });
+});
+
+/**
+ * Retry is a second, cheaper-looking door onto the same paid image generation,
+ * so it has to answer to the same ownership and rate-limit rules as create.
+ * The success path (an item that still has its original under tmp/) needs a
+ * real photo and a real model call and is driven against the live stack, not
+ * from here.
+ */
+test.describe('POST /wardrobe/:id/generate-image', () => {
+  let retryItemId: number;
+
+  test.beforeAll(async ({ request }) => {
+    const res = await postJson(request, '/wardrobe', owner, {
+      type: 'shirt',
+      color: '#00FF00',
+      name: 'Retry Seed',
+      season: 'summer',
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    retryItemId = (await res.json()).id;
+  });
+
+  test('requires authentication', async ({ request }) => {
+    const res = await request.post(`/wardrobe/${retryItemId}/generate-image`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('cannot retry another user’s item', async ({ request }) => {
+    await throttleGap(5_100);
+    const res = await request.post(`/wardrobe/${retryItemId}/generate-image`, {
+      headers: auth(stranger),
+    });
+    expect([403, 404]).toContain(res.status());
+  });
+
+  test('an item with no retained original says so instead of failing silently', async ({
+    request,
+  }) => {
+    await throttleGap(5_100);
+    const res = await request.post(`/wardrobe/${retryItemId}/generate-image`, {
+      headers: auth(owner),
+    });
+    expect(res.status()).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('IMAGE_ORIGINAL_EXPIRED');
+    expect(body.message).toMatch(/no longer available/i);
+  });
+
+  test('is rate limited like the initial generation', async ({ request }) => {
+    await throttleGap(5_100);
+    await request.post(`/wardrobe/${retryItemId}/generate-image`, {
+      headers: auth(owner),
+    });
+    const second = await request.post(
+      `/wardrobe/${retryItemId}/generate-image`,
+      {
+        headers: auth(owner),
+      },
+    );
+    expect(second.status()).toBe(429);
   });
 });
