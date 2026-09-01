@@ -1,6 +1,7 @@
 import { firstValueFrom, of, throwError } from 'rxjs';
 
 import { HttpService } from '@app/common/http';
+import { ErrorLoggerService } from '@app/logger';
 
 import { WeatherService } from './weather.service';
 
@@ -8,6 +9,9 @@ describe('WeatherService', () => {
   let service: WeatherService;
   let httpGet: jest.Mock;
   let cacheTtlMs: number;
+  let errorLogger: jest.Mocked<
+    Pick<ErrorLoggerService, 'warn' | 'error' | 'fatal'>
+  >;
   const configService = {
     get: jest.fn((key: string) =>
       key === 'AI_WEATHER_CACHE_TTL_MS' ? cacheTtlMs : 'test-api-key',
@@ -30,8 +34,13 @@ describe('WeatherService', () => {
   beforeEach(() => {
     cacheTtlMs = 600000;
     httpGet = jest.fn();
+    errorLogger = { warn: jest.fn(), error: jest.fn(), fatal: jest.fn() };
     const httpService = { get: httpGet } as unknown as HttpService;
-    service = new WeatherService(httpService, configService as never);
+    service = new WeatherService(
+      httpService,
+      configService as never,
+      errorLogger as unknown as ErrorLoggerService,
+    );
   });
 
   it('returns a WeatherContext for a valid city', async () => {
@@ -83,6 +92,37 @@ describe('WeatherService', () => {
     expect(result).toBeNull();
   });
 
+  it('logs an OpenWeatherMap failure to ErrorLoggerService at severity error', async () => {
+    const failure = new Error('network down');
+    httpGet
+      .mockReturnValueOnce(of([{ name: 'Kyiv', lat: 50, lon: 30 }]))
+      .mockReturnValueOnce(throwError(() => failure));
+
+    await firstValueFrom(service.getForecast('Kyiv'));
+
+    expect(errorLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: 'WeatherService',
+        message: 'network down',
+        errorName: 'Error',
+        stack: failure.stack,
+        meta: { city: 'Kyiv' },
+      }),
+    );
+  });
+
+  it('still returns null when writing the error log itself fails', async () => {
+    httpGet
+      .mockReturnValueOnce(of([{ name: 'Kyiv', lat: 50, lon: 30 }]))
+      .mockReturnValueOnce(throwError(() => new Error('network down')));
+    errorLogger.error.mockImplementation(() => {
+      throw new Error('rmq unavailable');
+    });
+
+    const result = await firstValueFrom(service.getForecast('Kyiv'));
+    expect(result).toBeNull();
+  });
+
   it('serves a repeated lookup for the same city from cache without re-hitting OpenWeatherMap', async () => {
     httpGet.mockReturnValueOnce(geocoded()).mockReturnValueOnce(forecast());
 
@@ -112,6 +152,7 @@ describe('WeatherService', () => {
     service = new WeatherService(
       { get: httpGet } as unknown as HttpService,
       configService as never,
+      errorLogger as unknown as ErrorLoggerService,
     );
     httpGet
       .mockReturnValueOnce(geocoded())
@@ -130,6 +171,7 @@ describe('WeatherService', () => {
     const svc = new WeatherService(
       { get: httpGet } as unknown as HttpService,
       noKeyConfig as never,
+      errorLogger as unknown as ErrorLoggerService,
     );
     const result = await firstValueFrom(svc.getForecast('Kyiv'));
     expect(result).toBeNull();

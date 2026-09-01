@@ -9,6 +9,8 @@ import {
   Part,
 } from '@google/genai';
 
+import { ErrorLoggerService } from '@app/logger';
+
 import {
   CALENDAR_EVENTS_DECLARATION,
   TOOL_DECLARATIONS,
@@ -94,7 +96,10 @@ export class GeminiClientService {
   private readonly maxToolRounds: number;
   private readonly maxToolCalls: number;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly errorLogger: ErrorLoggerService,
+  ) {
     const apiKey = this.configService.getOrThrow<string>('GEMINI_API_KEY');
     this.modelId = this.configService.get<string>(
       'GEMINI_MODEL',
@@ -275,21 +280,49 @@ export class GeminiClientService {
     const functionDeclarations = calendarConnected
       ? [...TOOL_DECLARATIONS, CALENDAR_EVENTS_DECLARATION]
       : TOOL_DECLARATIONS;
-    const response = await this.client.models.generateContent({
-      model: this.modelId,
-      contents,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations }],
-        toolConfig: {
-          functionCallingConfig: {
-            mode: toolsEnabled
-              ? FunctionCallingConfigMode.AUTO
-              : FunctionCallingConfigMode.NONE,
+
+    let response: GenerateContentResponse;
+    try {
+      response = await this.client.models.generateContent({
+        model: this.modelId,
+        contents,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          tools: [{ functionDeclarations }],
+          toolConfig: {
+            functionCallingConfig: {
+              mode: toolsEnabled
+                ? FunctionCallingConfigMode.AUTO
+                : FunctionCallingConfigMode.NONE,
+            },
           },
         },
-      },
-    });
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logger.warn(
+        `Gemini generateContent failed (${label}): ${err.message}`,
+      );
+      try {
+        this.errorLogger.error({
+          context: GeminiClientService.name,
+          message: err.message,
+          errorName: err.name,
+          stack: err.stack,
+          meta: { label },
+        });
+      } catch (loggingError) {
+        this.logger.warn(
+          `Failed to write error log for Gemini failure: ${
+            loggingError instanceof Error
+              ? loggingError.message
+              : String(loggingError)
+          }`,
+        );
+      }
+      throw error;
+    }
+
     this.logUsage(
       `generateChatResponse ${label}`,
       response,

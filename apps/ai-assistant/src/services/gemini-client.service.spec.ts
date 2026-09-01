@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 
+import { ErrorLoggerService } from '@app/logger';
+
 const generateContentMock = jest.fn();
 
 // Only the client is faked — Type and FunctionCallingConfigMode stay real so
@@ -28,6 +30,9 @@ describe('GeminiClientService', () => {
 
   let service: GeminiClientService;
   let executeTool: jest.Mock;
+  let errorLogger: jest.Mocked<
+    Pick<ErrorLoggerService, 'warn' | 'error' | 'fatal'>
+  >;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -35,11 +40,15 @@ describe('GeminiClientService', () => {
     configValues.AI_MAX_TOOL_ROUNDS = 4;
     configValues.AI_MAX_TOOL_CALLS = 8;
     executeTool = jest.fn().mockResolvedValue({ items: [], total: 0 });
+    errorLogger = { warn: jest.fn(), error: jest.fn(), fatal: jest.fn() };
     generateContentMock.mockResolvedValue({
       text: 'the assistant reply',
       usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4 },
     });
-    service = new GeminiClientService(configService as never);
+    service = new GeminiClientService(
+      configService as never,
+      errorLogger as unknown as ErrorLoggerService,
+    );
   });
 
   it('sends the assistant role and rules as systemInstruction, not in contents', async () => {
@@ -174,6 +183,55 @@ describe('GeminiClientService', () => {
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+
+  it('logs to ErrorLoggerService at severity error and rethrows unchanged when Gemini itself fails', async () => {
+    const failure = new Error('503 Service Unavailable');
+    generateContentMock.mockRejectedValueOnce(failure);
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
+    await expect(
+      service.generateChatResponse({
+        prompt: 'hello',
+        history: [],
+        referenceImages: [],
+        seedSummary: 'Wardrobe summary (orientation only)',
+        executeTool,
+      }),
+    ).rejects.toBe(failure);
+
+    expect(errorLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: 'GeminiClientService',
+        message: '503 Service Unavailable',
+        errorName: 'Error',
+        stack: failure.stack,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('503 Service Unavailable'),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not let a failure to write the error log break the request', async () => {
+    const failure = new Error('network down');
+    generateContentMock.mockRejectedValueOnce(failure);
+    errorLogger.error.mockImplementation(() => {
+      throw new Error('rmq unavailable');
+    });
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
+    await expect(
+      service.generateChatResponse({
+        prompt: 'hello',
+        history: [],
+        referenceImages: [],
+        seedSummary: 'Wardrobe summary (orientation only)',
+        executeTool,
+      }),
+    ).rejects.toBe(failure);
   });
 
   it('instructs the model to infer dress code itself and to handle multi-event days', async () => {
@@ -349,7 +407,10 @@ describe('GeminiClientService', () => {
     generateContentMock.mockResolvedValue(duplicate);
     configValues.AI_MAX_TOOL_ROUNDS = 10;
     configValues.AI_MAX_TOOL_CALLS = 3;
-    service = new GeminiClientService(configService as never);
+    service = new GeminiClientService(
+      configService as never,
+      errorLogger as unknown as ErrorLoggerService,
+    );
 
     await service.generateChatResponse({
       prompt: 'is it cold',
@@ -396,7 +457,10 @@ describe('GeminiClientService', () => {
   it('stops at AI_MAX_TOOL_ROUNDS and answers with tools disabled instead of throwing', async () => {
     configValues.AI_MAX_TOOL_ROUNDS = 2;
     configValues.AI_MAX_TOOL_CALLS = 99;
-    service = new GeminiClientService(configService as never);
+    service = new GeminiClientService(
+      configService as never,
+      errorLogger as unknown as ErrorLoggerService,
+    );
 
     generateContentMock.mockImplementation(({ config }) =>
       config.toolConfig.functionCallingConfig.mode === 'NONE'
@@ -429,7 +493,10 @@ describe('GeminiClientService', () => {
   it('stops at AI_MAX_TOOL_CALLS and answers with tools disabled instead of throwing', async () => {
     configValues.AI_MAX_TOOL_ROUNDS = 99;
     configValues.AI_MAX_TOOL_CALLS = 2;
-    service = new GeminiClientService(configService as never);
+    service = new GeminiClientService(
+      configService as never,
+      errorLogger as unknown as ErrorLoggerService,
+    );
 
     generateContentMock.mockImplementation(({ config }) =>
       config.toolConfig.functionCallingConfig.mode === 'NONE'
