@@ -22,6 +22,19 @@ export type ProductImageGenerationResult =
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_TIMEOUT_MS = 60000;
 
+/**
+ * Per-image output cost from the Phase 0 decision, keyed by model id so
+ * logging tracks whatever `GEMINI_IMAGE_MODEL` is actually configured rather
+ * than assuming the default. A model id outside this table (a future
+ * escalation, or a typo in config) logs an unknown cost rather than a wrong
+ * one — see `estimateCostUsd`.
+ */
+const COST_PER_IMAGE_USD: Record<string, number> = {
+  'gemini-3.1-flash-lite-image': 0.034,
+  'gemini-3.1-flash-image': 0.067,
+  'gemini-3-pro-image': 0.134,
+};
+
 // Phase 0 decision: straighten-plus-cutout, NOT canonical re-angling. The model
 // must not synthesise views the photo does not contain — an invented collar or
 // placket silently stops the image being the user's own garment, and nothing
@@ -204,6 +217,15 @@ export class ProductImageGeneratorService {
       },
     });
 
+    // The call completed and Google bills for it whether or not the response
+    // shape is one we can use, so the cost is logged here rather than only on
+    // the success path below.
+    this.logger.log(
+      `generate — model=${this.modelId} ` +
+        `promptTokens=${response.usageMetadata?.promptTokenCount ?? 'n/a'} ` +
+        `estCostUsd=${this.estimateCostUsd()}`,
+    );
+
     const parts = response?.candidates?.[0]?.content?.parts ?? [];
     const imagePart = parts.find((part) => part?.inlineData?.data);
 
@@ -215,6 +237,16 @@ export class ProductImageGeneratorService {
       base64: imagePart.inlineData.data,
       mimeType: imagePart.inlineData.mimeType || 'image/png',
     };
+  }
+
+  /**
+   * The Phase 0 estimate against which real spend gets measured. Not derived
+   * from token counts: Nano Banana pricing is per output image, not per
+   * token, so the per-model constant is the honest number to log.
+   */
+  private estimateCostUsd(): string {
+    const cost = COST_PER_IMAGE_USD[this.modelId];
+    return cost === undefined ? 'unknown' : `$${cost.toFixed(3)}`;
   }
 
   private storeGenerated(

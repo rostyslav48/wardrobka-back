@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { takeUser, auth, postJson, throttleGap, TestUser } from './support/api';
+import {
+  takeUser,
+  auth,
+  postJson,
+  patchJson,
+  throttleGap,
+  TestUser,
+} from './support/api';
 
 let owner: TestUser;
 let stranger: TestUser;
@@ -188,9 +195,9 @@ test.describe('POST /wardrobe', () => {
 
 test.describe('PATCH /wardrobe/:id', () => {
   test('updates a field', async ({ request }) => {
-    const res = await request.patch(`/wardrobe/${itemId}`, {
-      headers: auth(owner),
-      data: { name: 'Renamed Hoodie', favourite: true },
+    const res = await patchJson(request, `/wardrobe/${itemId}`, owner, {
+      name: 'Renamed Hoodie',
+      favourite: true,
     });
     expect(res.status(), await res.text()).toBe(200);
     const body = await res.json();
@@ -198,9 +205,8 @@ test.describe('PATCH /wardrobe/:id', () => {
   });
 
   test('cannot update another user’s item', async ({ request }) => {
-    const res = await request.patch(`/wardrobe/${itemId}`, {
-      headers: auth(stranger),
-      data: { name: 'Hijacked' },
+    const res = await patchJson(request, `/wardrobe/${itemId}`, stranger, {
+      name: 'Hijacked',
     });
     expect([403, 404]).toContain(res.status());
 
@@ -211,18 +217,14 @@ test.describe('PATCH /wardrobe/:id', () => {
   });
 
   test('rejects an invalid value', async ({ request }) => {
-    const res = await request.patch(`/wardrobe/${itemId}`, {
-      headers: auth(owner),
-      data: { color: 'not-a-colour' },
+    const res = await patchJson(request, `/wardrobe/${itemId}`, owner, {
+      color: 'not-a-colour',
     });
     expect(res.status()).toBe(400);
   });
 
   test('an empty patch body is a no-op, not a 500', async ({ request }) => {
-    const res = await request.patch(`/wardrobe/${itemId}`, {
-      headers: auth(owner),
-      data: {},
-    });
+    const res = await patchJson(request, `/wardrobe/${itemId}`, owner, {});
     expect(res.status()).toBeLessThan(500);
   });
 });
@@ -319,5 +321,24 @@ test.describe('POST /wardrobe/:id/generate-image', () => {
       },
     );
     expect(second.status()).toBe(429);
+  });
+
+  test('shares its rate limit bucket with POST /wardrobe, so alternating endpoints cannot double the rate', async ({
+    request,
+  }) => {
+    await throttleGap(5_100);
+    const created = await postJson(request, '/wardrobe', owner, {
+      type: 'shirt',
+      color: '#0000FF',
+      name: 'Bucket Share Seed',
+      season: 'summer',
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    const newItemId = (await created.json()).id;
+
+    const res = await request.post(`/wardrobe/${newItemId}/generate-image`, {
+      headers: auth(owner),
+    });
+    expect(res.status()).toBe(429);
   });
 });

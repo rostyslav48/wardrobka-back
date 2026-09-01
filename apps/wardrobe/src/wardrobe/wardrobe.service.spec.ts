@@ -15,10 +15,14 @@ function buildService() {
   const wardrobeItemRepository = {
     findOneBy: jest.fn(),
     findOneByOrFail: jest.fn(),
+    exists: jest.fn(async () => true),
     save: jest.fn(async (item: WardrobeItemEntity) => item),
     update: jest.fn<Promise<{ affected: number }>, [any, any]>(async () => ({
       affected: 0,
     })),
+  };
+  const entityManager = {
+    query: jest.fn<Promise<any[]>, [string, any[]]>(async () => []),
   };
   const mediaStorageService = {
     store: jest.fn(),
@@ -35,7 +39,7 @@ function buildService() {
   };
 
   const service = new WardrobeService(
-    {} as any,
+    entityManager as any,
     wardrobeItemRepository as any,
     {} as any,
     mediaStorageService as any,
@@ -46,6 +50,7 @@ function buildService() {
   return {
     service,
     wardrobeItemRepository,
+    entityManager,
     mediaStorageService,
     aiAssistantClient,
     emitted,
@@ -68,8 +73,10 @@ function buildItem(overrides: Partial<WardrobeItemEntity> = {}) {
 describe('WardrobeService — product-image failure and retry', () => {
   describe('applyGeneratedImage', () => {
     it('reports not_found when the item was deleted mid-flight', async () => {
-      const { service, wardrobeItemRepository } = buildService();
-      wardrobeItemRepository.findOneBy.mockResolvedValue(null);
+      const { service, entityManager, wardrobeItemRepository } =
+        buildService();
+      entityManager.query.mockResolvedValue([]);
+      wardrobeItemRepository.exists.mockResolvedValue(false);
 
       await expect(
         service.applyGeneratedImage(
@@ -82,10 +89,14 @@ describe('WardrobeService — product-image failure and retry', () => {
     });
 
     it('reports not_pending for a redelivered result', async () => {
-      const { service, wardrobeItemRepository } = buildService();
-      wardrobeItemRepository.findOneBy.mockResolvedValue(
-        buildItem({ image_status: ImageStatus.Ready }),
-      );
+      const { service, entityManager, wardrobeItemRepository } =
+        buildService();
+      // The atomic UPDATE's WHERE clause matches nothing once the row is no
+      // longer 'pending' — this is the case the fix for the redelivery race
+      // exists for: it never reads-then-writes, so there is nothing to assert
+      // about save() any more.
+      entityManager.query.mockResolvedValue([]);
+      wardrobeItemRepository.exists.mockResolvedValue(true);
 
       await expect(
         service.applyGeneratedImage(
@@ -95,13 +106,13 @@ describe('WardrobeService — product-image failure and retry', () => {
           'user-images/3/x.jpg',
         ),
       ).resolves.toBe(ApplyGeneratedImageOutcome.NotPending);
-      expect(wardrobeItemRepository.save).not.toHaveBeenCalled();
     });
 
     it('clears the retained original on success', async () => {
-      const { service, wardrobeItemRepository } = buildService();
-      const item = buildItem();
-      wardrobeItemRepository.findOneBy.mockResolvedValue(item);
+      const { service, entityManager, mediaStorageService } = buildService();
+      entityManager.query.mockResolvedValue([
+        { previous_img_path: null, new_img_path: 'user-images/3/x.jpg' },
+      ]);
 
       await expect(
         service.applyGeneratedImage(
@@ -112,25 +123,46 @@ describe('WardrobeService — product-image failure and retry', () => {
         ),
       ).resolves.toBe(ApplyGeneratedImageOutcome.Applied);
 
-      expect(item.img_path).toBe('user-images/3/x.jpg');
-      expect(item.image_status).toBe(ImageStatus.Ready);
-      expect(item.temp_image_key).toBeNull();
-      expect(item.image_pending_since).toBeNull();
+      expect(mediaStorageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes a previous image the generated one replaces', async () => {
+      const { service, entityManager, mediaStorageService } = buildService();
+      entityManager.query.mockResolvedValue([
+        {
+          previous_img_path: 'user-images/3/old.jpg',
+          new_img_path: 'user-images/3/x.jpg',
+        },
+      ]);
+
+      await expect(
+        service.applyGeneratedImage(
+          7,
+          3,
+          ImageStatus.Ready,
+          'user-images/3/x.jpg',
+        ),
+      ).resolves.toBe(ApplyGeneratedImageOutcome.Applied);
+
+      expect(mediaStorageService.delete).toHaveBeenCalledWith(
+        'user-images/3/old.jpg',
+      );
     });
 
     it('keeps the retained original on failure so a retry can re-run from it', async () => {
-      const { service, wardrobeItemRepository } = buildService();
-      const item = buildItem();
-      wardrobeItemRepository.findOneBy.mockResolvedValue(item);
+      const { service, entityManager, mediaStorageService } = buildService();
+      entityManager.query.mockResolvedValue([
+        { previous_img_path: null, new_img_path: null },
+      ]);
 
       await expect(
         service.applyGeneratedImage(7, 3, ImageStatus.Failed),
       ).resolves.toBe(ApplyGeneratedImageOutcome.Applied);
 
-      expect(item.image_status).toBe(ImageStatus.Failed);
-      expect(item.temp_image_key).toBe('tmp/3/original.jpg');
-      // No longer a candidate for the staleness sweep — it already failed.
-      expect(item.image_pending_since).toBeNull();
+      expect(mediaStorageService.delete).not.toHaveBeenCalled();
+      const [sql, params] = entityManager.query.mock.calls[0];
+      expect(sql).toContain(`image_status = 'pending'`);
+      expect(params).toEqual([7, 3, ImageStatus.Failed, null]);
     });
   });
 
