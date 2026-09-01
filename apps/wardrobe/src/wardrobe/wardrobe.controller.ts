@@ -15,7 +15,7 @@ import {
 } from '@app/wardrobe/dto';
 
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
-import { ImageStatus } from '@app/wardrobe/enums';
+import { ApplyGeneratedImageOutcome, ImageStatus } from '@app/wardrobe/enums';
 import { FileTransfer } from '@app/media-storage/models';
 
 @UseFilters(MicroserviceExceptionFilter)
@@ -86,6 +86,7 @@ export class WardrobeController {
       data.dto,
       user.id,
       data.image,
+      user,
     );
     this.rmqService.ack(context);
 
@@ -118,7 +119,7 @@ export class WardrobeController {
       status: ImageStatus.Ready | ImageStatus.Failed;
       imgPath?: string;
     }>,
-  ): Promise<boolean> {
+  ): Promise<ApplyGeneratedImageOutcome> {
     const applied = await this.wardrobeService.applyGeneratedImage(
       data.itemId,
       data.accountId,
@@ -128,6 +129,23 @@ export class WardrobeController {
     this.rmqService.ack(context);
 
     return applied;
+  }
+
+  // "Generate again" on a failed item. Re-runs from the original retained
+  // under tmp/, or answers 409 when that original is gone.
+  @MessagePattern(WARDROBE_REQUESTS.retryImageGeneration)
+  async retryImageGeneration(
+    @Ctx() context: RmqContext,
+    @Body() { data, user }: RequestType<number>,
+  ): Promise<WardrobeItemDto> {
+    const item = await this.wardrobeService.retryImageGeneration(
+      data,
+      user.id,
+      user,
+    );
+    this.rmqService.ack(context);
+
+    return item;
   }
 
   @MessagePattern(WARDROBE_REQUESTS.findManyByIds)

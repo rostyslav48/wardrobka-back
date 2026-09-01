@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import * as Joi from 'joi';
 
@@ -13,6 +14,7 @@ import { WardrobeController } from './wardrobe/wardrobe.controller';
 import { WardrobeService } from './wardrobe/wardrobe.service';
 import { OutfitLogController } from './outfit-log/outfit-log.controller';
 import { OutfitLogService } from './outfit-log/outfit-log.service';
+import { StaleImageGenerationJob } from './jobs/stale-image-generation.job';
 
 import { WardrobeItemEntity } from '@app/common/database/entities/wardrobe/wardrobe-item.entity';
 import { OutfitLogEntity } from '@app/common/database/entities/wardrobe/outfit-log.entity';
@@ -49,8 +51,12 @@ import { UserAccountEntity } from '@app/common/database/entities/auth/user-accou
       OutfitLogItemEntity,
     ]),
     MediaStorageModule,
+    // Drives the stale product-image sweep. Its hooks fire on
+    // onApplicationBootstrap, which a microservice-only bootstrap skips — see
+    // the `app.init()` call in main.ts.
+    ScheduleModule.forRoot(),
   ],
   controllers: [WardrobeController, OutfitLogController],
-  providers: [WardrobeService, OutfitLogService],
+  providers: [WardrobeService, OutfitLogService, StaleImageGenerationJob],
 })
 export class WardrobeModule {}

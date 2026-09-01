@@ -4,3 +4,4 @@ export * from './fit-type.enum';
 export * from './size.enum';
 export * from './item-type.enum';
 export * from './image-status.enum';
+export * from './apply-generated-image-outcome.enum';

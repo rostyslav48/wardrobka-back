@@ -94,6 +94,14 @@ export class WardrobeService {
     );
   }
 
+  public retryImageGeneration(id: number, user: UserAccountPreview) {
+    return this.wardrobeClient.send(
+      WARDROBE_REQUESTS.retryImageGeneration,
+      id,
+      user,
+    );
+  }
+
   public delete(id: number, user: UserAccountPreview) {
     return this.wardrobeClient.send(WARDROBE_REQUESTS.delete, id, user);
   }

@@ -15,7 +15,7 @@ import { RequestType } from '@app/common/types';
 import { GenerateProductImageRequestDto } from '@app/ai-assistant/dto';
 import { AI_ASSISTANT_REQUESTS } from '@app/ai-assistant/constants';
 import { WARDROBE_REQUESTS } from '@app/wardrobe/constants';
-import { ImageStatus } from '@app/wardrobe/enums';
+import { ApplyGeneratedImageOutcome, ImageStatus } from '@app/wardrobe/enums';
 import { WardrobeItemDto } from '@app/wardrobe/dto';
 import { MediaStorageService } from '@app/wardrobe/media-storage/media-storage.service';
 import { WARDROBE_SERVICE } from '@app/wardrobe-api-gateway/constants';
@@ -48,8 +48,8 @@ export class ProductImageController {
    *
    * Always acks. An unacked message here is redelivered on every reconnect and
    * each redelivery is a paid image generation, so a message that cannot be
-   * processed is dropped with a log rather than left to loop. Real retry lands
-   * in Phase 3 on top of the `failed` state this already writes.
+   * processed is dropped with a log rather than left to loop. Retry is the
+   * user's "Generate again" on the `failed` state this writes, not a redelivery.
    */
   @EventPattern(AI_ASSISTANT_REQUESTS.generateProductImage)
   async generateProductImage(
@@ -138,49 +138,69 @@ export class ProductImageController {
     request: GenerateProductImageRequestDto,
     result: ProductImageGenerationResult,
   ): Promise<void> {
-    const applied = await firstValueFrom(
+    const outcome = await firstValueFrom(
       this.wardrobeClient
-        .send<boolean>(WARDROBE_REQUESTS.applyGeneratedImage, {
-          data: {
-            itemId: request.itemId,
-            accountId: request.accountId,
-            status: result.status,
-            imgPath:
-              result.status === ImageStatus.Ready ? result.imgPath : undefined,
+        .send<ApplyGeneratedImageOutcome>(
+          WARDROBE_REQUESTS.applyGeneratedImage,
+          {
+            data: {
+              itemId: request.itemId,
+              accountId: request.accountId,
+              status: result.status,
+              imgPath:
+                result.status === ImageStatus.Ready
+                  ? result.imgPath
+                  : undefined,
+            },
+            user: { id: request.accountId },
           },
-          user: { id: request.accountId },
-        })
+        )
         .pipe(timeout(WARDROBE_RPC_TIMEOUT_MS)),
     );
 
     if (result.status !== ImageStatus.Ready) {
-      // The original stays under tmp/ so Phase 3's "Generate again" can re-run
-      // from it; the bucket's 7-day rule expires it if that never happens.
+      // The original stays under tmp/ so "Generate again" can re-run from it;
+      // the bucket's 7-day rule expires it if that never happens.
       return;
     }
 
-    if (!applied) {
-      // A concurrent delivery already finished this item. Its own success path
-      // owns the temp object — deleting it here would race that.
+    if (outcome === ApplyGeneratedImageOutcome.NotPending) {
+      // A concurrent delivery already finished this item, so the image this
+      // job just uploaded is referenced by nothing. The temp original is
+      // shared with the winner, though — deleting it here would race that.
       this.logger.warn(
-        `Item ${request.itemId} was no longer pending — leaving ` +
-          `${request.tempImageKey} for whoever did finish it`,
+        `Item ${request.itemId} was no longer pending — discarding ${result.imgPath} ` +
+          `and leaving ${request.tempImageKey} for whoever did finish it`,
       );
+      await this.deleteObject(result.imgPath);
       return;
+    }
+
+    if (outcome === ApplyGeneratedImageOutcome.NotFound) {
+      // The item was deleted while its job ran, so nothing will ever reference
+      // the image just uploaded and no delete path can reach it. Without this
+      // it sits in the bucket for the life of the account.
+      this.logger.warn(
+        `Item ${request.itemId} no longer exists — discarding the generated ` +
+          `image ${result.imgPath}`,
+      );
+      await this.deleteObject(result.imgPath);
     }
 
     await this.deleteTempOriginal(request.tempImageKey);
   }
 
   private async deleteTempOriginal(tempImageKey: string): Promise<void> {
+    // The item is already `ready` (or gone); a stranded original is a cleanup
+    // problem, not a user-visible one, and the lifecycle rule catches it.
+    await this.deleteObject(tempImageKey);
+  }
+
+  private async deleteObject(key: string): Promise<void> {
     try {
-      await this.mediaStorageService.delete(tempImageKey);
+      await this.mediaStorageService.delete(key);
     } catch (error) {
-      // The item is already `ready`; a stranded original is a cleanup problem,
-      // not a user-visible one, and the lifecycle rule catches it.
-      this.logger.warn(
-        `Could not delete the temp original ${tempImageKey}: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Could not delete ${key}: ${(error as Error).message}`);
     }
   }
 }

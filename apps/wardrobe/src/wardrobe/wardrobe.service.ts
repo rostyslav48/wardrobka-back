@@ -1,9 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, LessThan, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
+import { basename } from 'path';
 
 import {
   OutfitLogItemEntity,
@@ -22,8 +23,12 @@ import {
 
 import { FileTransfer } from '@app/media-storage/models';
 import { TEMP_UPLOAD_PREFIX } from '@app/media-storage/constants';
-import { WARDROBE_PREVIEW_SELECT } from '@app/wardrobe/constants';
-import { ImageStatus } from '@app/wardrobe/enums';
+import {
+  IMAGE_GENERATION_STALE_AFTER_MS,
+  IMAGE_ORIGINAL_EXPIRED_CODE,
+  WARDROBE_PREVIEW_SELECT,
+} from '@app/wardrobe/constants';
+import { ApplyGeneratedImageOutcome, ImageStatus } from '@app/wardrobe/enums';
 import { AI_ASSISTANT_REQUESTS } from '@app/ai-assistant/constants';
 import { AI_ASSISTANT_SERVICE } from '@app/wardrobe-api-gateway/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
@@ -110,7 +115,13 @@ export class WardrobeService {
       }
     }
 
-    item.image_status = shouldGenerate ? ImageStatus.Pending : ImageStatus.Ready;
+    item.image_status = shouldGenerate
+      ? ImageStatus.Pending
+      : ImageStatus.Ready;
+    // Retained until the generated image lands: it is both the job's input and
+    // what "Generate again" re-runs from after a failure.
+    item.temp_image_key = shouldGenerate ? tempImageKey : null;
+    item.image_pending_since = shouldGenerate ? new Date() : null;
 
     const savedEntity = await this.entityManager.save(item);
 
@@ -163,15 +174,18 @@ export class WardrobeService {
 
   /**
    * Terminal step of a generation job. Guarded on `image_status = 'pending'`
-   * so a redelivered RMQ message cannot overwrite an already-ready item (and
-   * so returns false, telling the caller not to delete anything).
+   * so a redelivered RMQ message cannot overwrite an already-ready item.
+   *
+   * The outcome tells the caller which cleanup it owns: only `applied` means
+   * the files this job produced belong to this item, and only `not_found`
+   * means the generated object has no owner left at all.
    */
   async applyGeneratedImage(
     itemId: number,
     accountId: number,
     status: ImageStatus.Ready | ImageStatus.Failed,
     imgPath?: string,
-  ): Promise<boolean> {
+  ): Promise<ApplyGeneratedImageOutcome> {
     const item = await this.wardrobeItemRepository.findOneBy({
       id: itemId,
       accountId,
@@ -181,7 +195,7 @@ export class WardrobeService {
       this.logger.warn(
         `Generated image for item ${itemId} has no matching item — dropping it`,
       );
-      return false;
+      return ApplyGeneratedImageOutcome.NotFound;
     }
 
     if (item.image_status !== ImageStatus.Pending) {
@@ -189,7 +203,7 @@ export class WardrobeService {
         `Item ${itemId} is already '${item.image_status}' — ignoring a ` +
           `duplicate '${status}' result`,
       );
-      return false;
+      return ApplyGeneratedImageOutcome.NotPending;
     }
 
     const previousImgPath = item.img_path;
@@ -199,6 +213,15 @@ export class WardrobeService {
       item.img_path = imgPath;
     }
 
+    // A failure keeps the original under tmp/ so "Generate again" can re-run
+    // from it; a success no longer needs it and the caller deletes the object.
+    if (status === ImageStatus.Ready) {
+      item.temp_image_key = null;
+    }
+    // Either way the job is over, so it is no longer a candidate for the
+    // staleness sweep.
+    item.image_pending_since = null;
+
     await this.wardrobeItemRepository.save(item);
 
     // Steady state is one image per item: if anything was already stored under
@@ -207,7 +230,113 @@ export class WardrobeService {
       await this.mediaStorageService.delete(previousImgPath);
     }
 
-    return true;
+    return ApplyGeneratedImageOutcome.Applied;
+  }
+
+  /**
+   * "Generate again" — re-runs the job from the original the item still holds
+   * under tmp/, so the user does not have to find the photo again.
+   *
+   * Answers 409 rather than queueing a job that is certain to fail when the
+   * original is gone (expired by the 7-day rule, or never stored because the
+   * item was created without generation); the client turns that specific
+   * `code` into a "pick the photo again" flow.
+   */
+  async retryImageGeneration(
+    itemId: number,
+    accountId: number,
+    user?: UserAccountPreview,
+  ): Promise<WardrobeItemDto> {
+    const item = await this.wardrobeItemRepository.findOneByOrFail({
+      id: itemId,
+      accountId,
+    });
+
+    if (item.image_status === ImageStatus.Pending) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'This image is already being generated.',
+        code: 'IMAGE_ALREADY_PENDING',
+      });
+    }
+
+    if (!item.temp_image_key || !(await this.hasTempOriginal(item))) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message:
+          'The photo this item was created from is no longer available. ' +
+          'Pick the photo again to generate a new image.',
+        code: IMAGE_ORIGINAL_EXPIRED_CODE,
+      });
+    }
+
+    item.image_status = ImageStatus.Pending;
+    item.image_pending_since = new Date();
+    const savedEntity = await this.wardrobeItemRepository.save(item);
+
+    this.emitGenerationRequest(
+      savedEntity.id,
+      accountId,
+      savedEntity.temp_image_key,
+      basename(savedEntity.temp_image_key),
+      user,
+    );
+
+    const [itemWithUrl] = await this.getItemsWithImageUrls([savedEntity]);
+
+    return plainToInstance(WardrobeItemDto, itemWithUrl, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  /**
+   * A storage error is not an answer: reporting it as "gone" would send the
+   * user off to re-pick a photo that is still sitting in the bucket, so it
+   * counts as present and the retry proceeds (and fails visibly if it must).
+   */
+  private async hasTempOriginal(item: WardrobeItemEntity): Promise<boolean> {
+    try {
+      return await this.mediaStorageService.exists(item.temp_image_key);
+    } catch (error) {
+      this.logger.warn(
+        `Could not check the retained original for item ${item.id} ` +
+          `(${item.temp_image_key}): ${(error as Error).message}`,
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Fails items whose job never came back. Without this a consumer that died
+   * mid-flight — or a publish that never reached the queue — leaves the user
+   * watching a spinner with no action attached to it, forever.
+   *
+   * The original stays under tmp/, so every item this touches is retryable
+   * until the bucket's 7-day rule expires it.
+   */
+  async failStalePendingImages(
+    staleAfterMs: number = IMAGE_GENERATION_STALE_AFTER_MS,
+  ): Promise<number> {
+    const cutoff = new Date(Date.now() - staleAfterMs);
+
+    const { affected } = await this.wardrobeItemRepository.update(
+      {
+        image_status: ImageStatus.Pending,
+        image_pending_since: LessThan(cutoff),
+      },
+      { image_status: ImageStatus.Failed, image_pending_since: null },
+    );
+
+    if (affected) {
+      this.logger.warn(
+        `Failed ${affected} item(s) whose product-image job never finished ` +
+          `(pending since before ${cutoff.toISOString()})`,
+      );
+    }
+
+    return affected ?? 0;
   }
 
   async findManyByIds(
@@ -258,27 +387,37 @@ export class WardrobeService {
     dto: UpdateWardrobeItemRequestDto,
     accountId: number,
     image?: FileTransfer,
+    user?: UserAccountPreview,
   ): Promise<WardrobeItemDto> {
     const item = await this.wardrobeItemRepository.findOneByOrFail({
       id,
       accountId,
     });
 
-    if (image) {
-      if (item.img_path) {
-        await this.mediaStorageService.delete(item.img_path);
-      }
+    // Same transport-only flag as on create — never assigned onto the entity.
+    const { generate_image: generateImage, ...itemFields } = dto;
 
-      item.img_path = await this.mediaStorageService.store(
-        image,
-        `${this.configService.getOrThrow('USER_IMAGES_FOLDER_PATH')}/${accountId}`,
-      );
+    // A new photo with generation on is the fallback path for an item whose
+    // retained original expired: same pipeline as create, except the existing
+    // image stays visible until the generated one replaces it.
+    const shouldGenerate = Boolean(generateImage && image);
+
+    if (image) {
+      await this.replaceStoredImage(item, accountId, image, shouldGenerate);
     }
 
-    // Same transport-only flag as on create — never assigned onto the entity.
-    const { generate_image: _generateImage, ...itemFields } = dto;
     Object.assign(item, itemFields);
     const updatedItem = await this.wardrobeItemRepository.save(item);
+
+    if (shouldGenerate) {
+      this.emitGenerationRequest(
+        updatedItem.id,
+        accountId,
+        updatedItem.temp_image_key,
+        image.originalname,
+        user,
+      );
+    }
 
     const [itemWithUrl] = plainToInstance(
       WardrobeItemDto,
@@ -291,6 +430,61 @@ export class WardrobeService {
     return itemWithUrl;
   }
 
+  /**
+   * Stores a replacement photo, either as the item's image or as the input to
+   * a fresh generation job.
+   *
+   * Any original still held under tmp/ is dropped either way: once the user has
+   * supplied a new photo, the old one is not what "Generate again" should use.
+   */
+  private async replaceStoredImage(
+    item: WardrobeItemEntity,
+    accountId: number,
+    image: FileTransfer,
+    shouldGenerate: boolean,
+  ): Promise<void> {
+    const previousTempKey = item.temp_image_key;
+
+    if (shouldGenerate) {
+      item.temp_image_key = await this.mediaStorageService.store(
+        image,
+        `${TEMP_UPLOAD_PREFIX}/${accountId}`,
+      );
+      item.image_status = ImageStatus.Pending;
+      item.image_pending_since = new Date();
+    } else {
+      if (item.img_path) {
+        await this.mediaStorageService.delete(item.img_path);
+      }
+
+      item.img_path = await this.mediaStorageService.store(
+        image,
+        `${this.configService.getOrThrow('USER_IMAGES_FOLDER_PATH')}/${accountId}`,
+      );
+      // The uploaded photo *is* the item's image now, so any earlier
+      // generation failure is no longer the item's state.
+      item.image_status = ImageStatus.Ready;
+      item.temp_image_key = null;
+      item.image_pending_since = null;
+    }
+
+    if (previousTempKey) {
+      await this.deleteQuietly(previousTempKey);
+    }
+  }
+
+  private async deleteQuietly(filePath: string): Promise<void> {
+    try {
+      await this.mediaStorageService.delete(filePath);
+    } catch (error) {
+      // Storage cleanup must never fail the user's write; the tmp/ lifecycle
+      // rule catches whatever is left behind.
+      this.logger.warn(
+        `Could not delete ${filePath}: ${(error as Error).message}`,
+      );
+    }
+  }
+
   async delete(id: number, accountId: number) {
     const item = await this.wardrobeItemRepository.findOneByOrFail({
       id,
@@ -299,6 +493,12 @@ export class WardrobeService {
 
     if (item.img_path) {
       await this.mediaStorageService.delete(item.img_path);
+    }
+
+    // A failed item's original is still sitting under tmp/ waiting for a retry
+    // that can no longer happen.
+    if (item.temp_image_key) {
+      await this.deleteQuietly(item.temp_image_key);
     }
 
     // Outfit-log entries have no DB-level FK to wardrobe items (cross-service
