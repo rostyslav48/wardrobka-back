@@ -26,11 +26,18 @@ const DEFAULT_TIMEOUT_MS = 60000;
 // must not synthesise views the photo does not contain — an invented collar or
 // placket silently stops the image being the user's own garment, and nothing
 // downstream catches it.
+//
+// The two halves have to be phrased so they cannot read as contradictory. An
+// earlier wording paired "straighten and square up" with "do NOT rotate the
+// garment to a different angle"; run live, the model obeyed the negative and
+// returned the garment still tilted at its photographed angle. "Rotate" is
+// split out here: in-plane rotation is asked for explicitly, and what is
+// forbidden is naming a camera/viewpoint change rather than rotation as such.
 const GENERATION_PROMPT = [
   'Turn this photo of a single clothing item into a clean e-commerce product image.',
   'Remove the background entirely and replace it with a plain, uniform white background.',
-  'Straighten and square up the garment so it is centred and presented flat-lay style, and relight it evenly with soft, neutral studio lighting.',
-  'Do NOT rotate the garment to a different angle and do NOT invent, redraw or complete any part of it that the photo does not show. Keep the exact same view, cut, proportions, colour, texture, print, logos and hardware.',
+  'Straighten the garment: rotate it within the picture plane until it is perfectly upright and square — neckline or waistband level across the top, hem level across the bottom, no tilt — then centre it, present it flat-lay style, and relight it evenly with soft, neutral studio lighting.',
+  'Keep the same face of the garment towards the camera as in the photo. Do NOT move the camera to a different angle, do NOT turn the garment around to reveal a side the photo does not show, and do NOT invent, redraw or complete any part of it. Keep the exact same view, cut, proportions, colour, texture, print, logos and hardware.',
   'Remove any hanger, mannequin, person, hands or props. Output only the garment on white.',
 ].join('\n');
 

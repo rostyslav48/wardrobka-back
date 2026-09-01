@@ -121,8 +121,11 @@ describe('ProductImageGeneratorService', () => {
     expect(call.config.abortSignal).toBeInstanceOf(AbortSignal);
   });
 
-  // Phase 0 decision: straighten-plus-cutout, never canonical re-angling.
-  it('instructs the model to remove the background and keep the photographed angle', async () => {
+  // Phase 0 decision: straighten-plus-cutout, never canonical re-angling. Both
+  // halves are asserted — an earlier wording carried the "no re-angling" half
+  // so forcefully that the model skipped straightening too, which no mocked
+  // assertion on the negative alone would have caught.
+  it('instructs the model to remove the background, straighten in-plane and keep the photographed viewpoint', async () => {
     generateContentMock.mockResolvedValue(imageResponse('generated-bytes'));
 
     await service.generate(input);
@@ -131,7 +134,8 @@ describe('ProductImageGeneratorService', () => {
       .text as string;
     expect(prompt).toMatch(/remove the background/i);
     expect(prompt).toMatch(/white background/i);
-    expect(prompt).toMatch(/do not rotate .*different angle/i);
+    expect(prompt).toMatch(/rotate it within the picture plane/i);
+    expect(prompt).toMatch(/do not move the camera to a different angle/i);
     expect(prompt).toMatch(/do not invent, redraw or complete/i);
   });
 
