@@ -4,6 +4,7 @@ import {
   HttpException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { BaseRpcExceptionFilter, RmqContext } from '@nestjs/microservices';
 import { throwError } from 'rxjs';
@@ -23,7 +24,11 @@ const RPC_REQUEST_METHOD = 'RMQ';
 export class MicroserviceExceptionFilter extends BaseRpcExceptionFilter {
   constructor(
     private readonly rmqService: RmqService,
-    private readonly errorLogger: ErrorLoggerService,
+    // Optional: the `logger` microservice's own controller uses this filter
+    // too, but deliberately does not register ErrorLoggerModule — wiring it
+    // there would make a failure while writing an error log emit another
+    // error-log.create event onto the same queue it consumes.
+    @Optional() private readonly errorLogger?: ErrorLoggerService,
   ) {
     super();
   }
@@ -77,6 +82,10 @@ export class MicroserviceExceptionFilter extends BaseRpcExceptionFilter {
       context: RmqContext;
     },
   ): void {
+    if (!this.errorLogger) {
+      return;
+    }
+
     const { statusCode, message, errorName, stack, context } = details;
 
     this.errorLogger[severity]({

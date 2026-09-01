@@ -115,6 +115,21 @@ describe('MicroserviceExceptionFilter', () => {
     );
   });
 
+  it('does not throw when constructed without an ErrorLoggerService (the logger app itself omits it)', async () => {
+    const host = makeHost('create_error_log');
+    const bareFilter = new MicroserviceExceptionFilter(
+      rmqService as unknown as RmqService,
+    );
+    const exception = new BadRequestException('Validation failed');
+
+    const result$ = bareFilter.catch(exception, host);
+    await expect(firstValueFrom(result$)).rejects.toEqual(
+      exception.getResponse(),
+    );
+
+    expect(rmqService.ack).toHaveBeenCalledTimes(1);
+  });
+
   it('logs a non-Error thrown value without throwing from the logger call itself', () => {
     const host = makeHost();
 
