@@ -1,4 +1,4 @@
-import { of, throwError } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 import { ClientProxy } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
@@ -47,6 +47,7 @@ describe('ContextBuilderService — tool handlers', () => {
   const account = { id: 42, name: 'Test', email: 't@e.com' };
   let wardrobeSend: jest.Mock;
   let wardrobeClient: ClientProxy;
+  let mediaSend: jest.Mock;
   let mediaClient: ClientProxy;
   let accountRepo: { findOne: jest.Mock };
   let weatherService: { getForecast: jest.Mock };
@@ -68,7 +69,8 @@ describe('ContextBuilderService — tool handlers', () => {
   beforeEach(() => {
     wardrobeSend = jest.fn();
     wardrobeClient = { send: wardrobeSend } as unknown as ClientProxy;
-    mediaClient = { send: jest.fn() } as unknown as ClientProxy;
+    mediaSend = jest.fn();
+    mediaClient = { send: mediaSend } as unknown as ClientProxy;
     accountRepo = { findOne: jest.fn() };
     weatherService = { getForecast: jest.fn() };
     configValues = {};
@@ -360,6 +362,18 @@ describe('ContextBuilderService — tool handlers', () => {
 
       expect(result).toEqual({ outfits: [], total: 0 });
     });
+
+    it('returns an empty list rather than throwing when the RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = await service.executeTool(
+        'get_recent_outfits',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({ outfits: [], total: 0 });
+    });
   });
 
   describe('propose_outfit', () => {
@@ -438,6 +452,92 @@ describe('ContextBuilderService — tool handlers', () => {
       )) as { itemIds: number[] };
 
       expect(result.itemIds).toEqual([1]);
+    });
+
+    it('returns an error result rather than throwing when the ownership-check RPC fails', async () => {
+      wardrobeSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [1], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toContain('rmq down');
+    });
+  });
+
+  describe('RPC timeout', () => {
+    it('resolves search_wardrobe to an error result, not a hang, when the wardrobe service never responds', async () => {
+      configValues.AI_TOOL_RPC_TIMEOUT_MS = 20;
+      service = build();
+      wardrobeSend.mockReturnValue(NEVER);
+
+      const result = (await service.executeTool(
+        'search_wardrobe',
+        {},
+        account,
+      )) as { error: string };
+
+      expect(result.error).toBeDefined();
+    });
+
+    it('resolves propose_outfit to an error result, not a hang, when the ownership-check RPC never responds', async () => {
+      configValues.AI_TOOL_RPC_TIMEOUT_MS = 20;
+      service = build();
+      wardrobeSend.mockReturnValue(NEVER);
+
+      const result = (await service.executeTool(
+        'propose_outfit',
+        { summary: 'Outfit', itemIds: [1], rationale: 'reason' },
+        account,
+      )) as { error: string };
+
+      expect(result.error).toBeDefined();
+    });
+
+    it('resolves get_recent_outfits to an empty list, not a hang, when the wardrobe service never responds', async () => {
+      configValues.AI_TOOL_RPC_TIMEOUT_MS = 20;
+      service = build();
+      wardrobeSend.mockReturnValue(NEVER);
+
+      const result = await service.executeTool(
+        'get_recent_outfits',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({ outfits: [], total: 0 });
+    });
+  });
+
+  describe('fetchReferenceImageUrls', () => {
+    it('resolves item paths to signed urls, in the order the keys were given', async () => {
+      mediaSend.mockReturnValue(
+        of({ 0: 'https://cdn/a.jpg', 1: 'https://cdn/b.jpg' }),
+      );
+
+      const result = await service.fetchReferenceImageUrls(['a', 'b']);
+
+      expect(result).toEqual(['https://cdn/a.jpg', 'https://cdn/b.jpg']);
+    });
+
+    it('returns an empty array rather than throwing when the media-storage RPC fails', async () => {
+      mediaSend.mockReturnValue(throwError(() => new Error('rmq down')));
+
+      const result = await service.fetchReferenceImageUrls(['a']);
+
+      expect(result).toEqual([]);
+    });
+
+    it('returns an empty array, not a hang, when the media-storage service never responds', async () => {
+      configValues.AI_TOOL_RPC_TIMEOUT_MS = 20;
+      service = build();
+      mediaSend.mockReturnValue(NEVER);
+
+      const result = await service.fetchReferenceImageUrls(['a']);
+
+      expect(result).toEqual([]);
     });
   });
 

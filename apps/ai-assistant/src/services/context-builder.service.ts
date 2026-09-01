@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 
 import {
   OutfitLogDto,
@@ -33,6 +33,14 @@ const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const REFERENCE_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const DEFAULT_TOOL_ROW_LIMIT = 100;
 const DEFAULT_RECENT_LOG_LIMIT = 7;
+/**
+ * Bounds every RMQ round trip this service makes (wardrobe + media-storage).
+ * Without it, a stuck downstream consumer hangs the whole tool call — and
+ * with it, the loop's round/call-limit guardrails — forever, since none of
+ * those guardrails ever get a chance to engage upstream of a call that never
+ * resolves.
+ */
+const DEFAULT_TOOL_RPC_TIMEOUT_MS = 8000;
 
 export interface RecentlyWornEntry {
   date: string;
@@ -51,6 +59,7 @@ export type ToolResult = Record<string, unknown>;
 export class ContextBuilderService {
   private readonly logger = new Logger(ContextBuilderService.name);
   private readonly toolRowLimit: number;
+  private readonly toolRpcTimeoutMs: number;
 
   constructor(
     @Inject(WARDROBE_SERVICE) private readonly wardrobeClient: ClientProxy,
@@ -64,6 +73,12 @@ export class ContextBuilderService {
       this.configService.get<number>(
         'AI_TOOL_ROW_LIMIT',
         DEFAULT_TOOL_ROW_LIMIT,
+      ),
+    );
+    this.toolRpcTimeoutMs = Number(
+      this.configService.get<number>(
+        'AI_TOOL_RPC_TIMEOUT_MS',
+        DEFAULT_TOOL_RPC_TIMEOUT_MS,
       ),
     );
   }
@@ -141,10 +156,12 @@ export class ContextBuilderService {
 
     const items =
       ((await firstValueFrom(
-        this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
-          data: filter,
-          user: account,
-        }),
+        this.wardrobeClient
+          .send(WARDROBE_REQUESTS.findMany, {
+            data: filter,
+            user: account,
+          })
+          .pipe(timeout(this.toolRpcTimeoutMs)),
       )) as WardrobeItemPreviewDto[]) ?? [];
 
     const requested = this.positiveInt(args.limit) ?? this.toolRowLimit;
@@ -305,10 +322,12 @@ export class ContextBuilderService {
     try {
       return (
         ((await firstValueFrom(
-          this.wardrobeClient.send(WARDROBE_REQUESTS.findMany, {
-            data: {},
-            user: account,
-          }),
+          this.wardrobeClient
+            .send(WARDROBE_REQUESTS.findMany, {
+              data: {},
+              user: account,
+            })
+            .pipe(timeout(this.toolRpcTimeoutMs)),
         )) as WardrobeItemPreviewDto[]) ?? []
       );
     } catch (error) {
@@ -357,10 +376,12 @@ export class ContextBuilderService {
     }
 
     return firstValueFrom(
-      this.wardrobeClient.send(WARDROBE_REQUESTS.findManyByIds, {
-        data: ids,
-        user: account,
-      }),
+      this.wardrobeClient
+        .send(WARDROBE_REQUESTS.findManyByIds, {
+          data: ids,
+          user: account,
+        })
+        .pipe(timeout(this.toolRpcTimeoutMs)),
     ) as Promise<WardrobeItemDto[]>;
   }
 
@@ -391,10 +412,12 @@ export class ContextBuilderService {
   ): Promise<RecentlyWornEntry[]> {
     try {
       const logs = (await firstValueFrom(
-        this.wardrobeClient.send(OUTFIT_LOG_REQUESTS.findMany, {
-          data: { limit },
-          user: account,
-        }),
+        this.wardrobeClient
+          .send(OUTFIT_LOG_REQUESTS.findMany, {
+            data: { limit },
+            user: account,
+          })
+          .pipe(timeout(this.toolRpcTimeoutMs)),
       )) as OutfitLogDto[];
 
       if (!logs?.length) {
@@ -436,13 +459,24 @@ export class ContextBuilderService {
       path,
     }));
 
-    const result = (await firstValueFrom(
-      this.mediaClient.send(MEDIA_STORAGE_REQUESTS.getUrls, {
-        itemPaths,
-      }),
-    )) as Record<string, string>;
+    try {
+      const result = (await firstValueFrom(
+        this.mediaClient
+          .send(MEDIA_STORAGE_REQUESTS.getUrls, {
+            itemPaths,
+          })
+          .pipe(timeout(this.toolRpcTimeoutMs)),
+      )) as Record<string, string>;
 
-    return keys.map((_, index) => result[index] ?? null).filter(Boolean);
+      return keys.map((_, index) => result[index] ?? null).filter(Boolean);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to resolve reference image urls: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
   }
 
   /**

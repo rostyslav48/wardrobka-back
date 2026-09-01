@@ -53,6 +53,7 @@ import { GoogleTokenService } from './calendar/google-token.service';
         AI_MAX_TOOL_ROUNDS: Joi.number().integer().min(1).default(4),
         AI_MAX_TOOL_CALLS: Joi.number().integer().min(1).default(8),
         AI_TOOL_ROW_LIMIT: Joi.number().integer().min(1).default(100),
+        AI_TOOL_RPC_TIMEOUT_MS: Joi.number().integer().min(1).default(8000),
         AI_WEATHER_CACHE_TTL_MS: Joi.number().integer().min(0).default(600000),
         GEMINI_ANALYZE_TIMEOUT_MS: Joi.number()
           .integer()
