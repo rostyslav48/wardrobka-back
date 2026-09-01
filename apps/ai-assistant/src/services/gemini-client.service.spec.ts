@@ -176,6 +176,25 @@ describe('GeminiClientService', () => {
     warnSpy.mockRestore();
   });
 
+  it('instructs the model to infer dress code itself and to handle multi-event days', async () => {
+    await service.generateChatResponse({
+      prompt: 'what should I wear',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      calendarConnected: true,
+      executeTool,
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    expect(call.config.systemInstruction).toEqual(
+      expect.stringContaining('infer the dress code'),
+    );
+    expect(call.config.systemInstruction).toEqual(
+      expect.stringContaining('more than one event'),
+    );
+  });
+
   it('registers the four retrieval tools and declares no accountId parameter', async () => {
     await service.generateChatResponse({
       prompt: 'hello',
@@ -196,6 +215,49 @@ describe('GeminiClientService', () => {
       'propose_outfit',
     ]);
     expect(JSON.stringify(declarations)).not.toContain('accountId');
+  });
+
+  it('omits get_calendar_events entirely when the account has no active credential', async () => {
+    await service.generateChatResponse({
+      prompt: 'hello',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      executeTool,
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    const declarations = call.config.tools[0].functionDeclarations;
+
+    expect(declarations.map((d: { name: string }) => d.name)).not.toContain(
+      'get_calendar_events',
+    );
+  });
+
+  it('declares get_calendar_events with a single days_ahead integer parameter, no accountId, when the credential is active', async () => {
+    await service.generateChatResponse({
+      prompt: 'what should I wear to my meeting',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      calendarConnected: true,
+      executeTool,
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    const declarations = call.config.tools[0].functionDeclarations;
+    const calendarDeclaration = declarations.find(
+      (d: { name: string }) => d.name === 'get_calendar_events',
+    );
+
+    expect(calendarDeclaration).toBeDefined();
+    expect(Object.keys(calendarDeclaration.parameters.properties)).toEqual([
+      'days_ahead',
+    ]);
+    expect(calendarDeclaration.parameters.properties.days_ahead.type).toBe(
+      'INTEGER',
+    );
+    expect(JSON.stringify(calendarDeclaration)).not.toContain('accountId');
   });
 
   it('completes with zero tool calls when the model answers in text', async () => {

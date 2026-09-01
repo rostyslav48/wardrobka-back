@@ -15,6 +15,8 @@ import { ContextBuilderService } from './context-builder.service';
 import { WeatherService } from './weather.service';
 import { getCurrentSeason } from './current-season.util';
 import { WeatherContext } from '../types/weather-context.type';
+import { GoogleCalendarService } from '../calendar/google-calendar.service';
+import { GoogleTokenService } from '../calendar/google-token.service';
 
 const makeItem = (
   id: number,
@@ -51,6 +53,8 @@ describe('ContextBuilderService — tool handlers', () => {
   let mediaClient: ClientProxy;
   let accountRepo: { findOne: jest.Mock };
   let weatherService: { getForecast: jest.Mock };
+  let googleTokenService: { getStatus: jest.Mock };
+  let googleCalendarService: { getEvents: jest.Mock };
   let configValues: Record<string, unknown>;
   let service: ContextBuilderService;
 
@@ -64,6 +68,8 @@ describe('ContextBuilderService — tool handlers', () => {
         get: (key: string, fallback?: unknown) =>
           key in configValues ? configValues[key] : fallback,
       } as unknown as ConfigService,
+      googleTokenService as unknown as GoogleTokenService,
+      googleCalendarService as unknown as GoogleCalendarService,
     );
 
   beforeEach(() => {
@@ -73,6 +79,12 @@ describe('ContextBuilderService — tool handlers', () => {
     mediaClient = { send: mediaSend } as unknown as ClientProxy;
     accountRepo = { findOne: jest.fn() };
     weatherService = { getForecast: jest.fn() };
+    googleTokenService = {
+      getStatus: jest.fn().mockResolvedValue('disconnected'),
+    };
+    googleCalendarService = {
+      getEvents: jest.fn().mockResolvedValue({ connected: false, rows: [] }),
+    };
     configValues = {};
     service = build();
   });
@@ -467,6 +479,107 @@ describe('ContextBuilderService — tool handlers', () => {
     });
   });
 
+  describe('get_calendar_events', () => {
+    it('binds accountId server-side and ignores an account id supplied by the model', async () => {
+      googleCalendarService.getEvents.mockResolvedValue({
+        connected: true,
+        rows: ['2026-01-01|09:00|Standup|Office|3'],
+      });
+
+      await service.executeTool(
+        'get_calendar_events',
+        { accountId: 999, days_ahead: 3 },
+        account,
+      );
+
+      expect(googleCalendarService.getEvents).toHaveBeenCalledWith(
+        account.id,
+        3,
+      );
+      expect(googleCalendarService.getEvents).not.toHaveBeenCalledWith(
+        999,
+        expect.anything(),
+      );
+    });
+
+    it('returns connected, total, truncated and rows from GoogleCalendarService', async () => {
+      googleCalendarService.getEvents.mockResolvedValue({
+        connected: true,
+        rows: [
+          '2026-01-01|09:00|Standup|Office|3',
+          '2026-01-01|18:00|Dinner|Downtown|2',
+        ],
+      });
+
+      const result = await service.executeTool(
+        'get_calendar_events',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({
+        connected: true,
+        total: 2,
+        truncated: false,
+        rows: [
+          '2026-01-01|09:00|Standup|Office|3',
+          '2026-01-01|18:00|Dinner|Downtown|2',
+        ],
+      });
+    });
+
+    it('passes no days_ahead through when the model omits it, letting the service apply its own default', async () => {
+      googleCalendarService.getEvents.mockResolvedValue({
+        connected: true,
+        rows: [],
+      });
+
+      await service.executeTool('get_calendar_events', {}, account);
+
+      expect(googleCalendarService.getEvents).toHaveBeenCalledWith(
+        account.id,
+        undefined,
+      );
+    });
+
+    it('reports a disconnected or revoked credential as connected: false without throwing', async () => {
+      googleCalendarService.getEvents.mockResolvedValue({
+        connected: false,
+        rows: [],
+      });
+
+      const result = await service.executeTool(
+        'get_calendar_events',
+        {},
+        account,
+      );
+
+      expect(result).toEqual({
+        connected: false,
+        total: 0,
+        truncated: false,
+        rows: [],
+      });
+    });
+  });
+
+  describe('isCalendarConnected', () => {
+    it('is true only when the credential status is active', async () => {
+      googleTokenService.getStatus.mockResolvedValue('active');
+      expect(await service.isCalendarConnected(account.id)).toBe(true);
+    });
+
+    it('is false when disconnected', async () => {
+      googleTokenService.getStatus.mockResolvedValue('disconnected');
+      expect(await service.isCalendarConnected(account.id)).toBe(false);
+    });
+
+    it('is false when revoked', async () => {
+      googleTokenService.getStatus.mockResolvedValue('revoked');
+      expect(await service.isCalendarConnected(account.id)).toBe(false);
+    });
+  });
+
   describe('RPC timeout', () => {
     it('resolves search_wardrobe to an error result, not a hang, when the wardrobe service never responds', async () => {
       configValues.AI_TOOL_RPC_TIMEOUT_MS = 20;
@@ -558,11 +671,15 @@ describe('ContextBuilderService — buildSeedSummary', () => {
   const account = { id: 42, name: 'Test', email: 't@e.com' };
   let wardrobeSend: jest.Mock;
   let accountRepo: { findOne: jest.Mock };
+  let googleTokenService: { getStatus: jest.Mock };
   let service: ContextBuilderService;
 
   beforeEach(() => {
     wardrobeSend = jest.fn();
     accountRepo = { findOne: jest.fn() };
+    googleTokenService = {
+      getStatus: jest.fn().mockResolvedValue('disconnected'),
+    };
     service = new ContextBuilderService(
       { send: wardrobeSend } as unknown as ClientProxy,
       { send: jest.fn() } as unknown as ClientProxy,
@@ -571,7 +688,43 @@ describe('ContextBuilderService — buildSeedSummary', () => {
       {
         get: (_: string, fallback?: unknown) => fallback,
       } as unknown as ConfigService,
+      googleTokenService as unknown as GoogleTokenService,
+      { getEvents: jest.fn() } as unknown as GoogleCalendarService,
     );
+  });
+
+  it('gains one calendar line when the credential is active', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(of([]));
+    googleTokenService.getStatus.mockResolvedValue('active');
+
+    const summary = await service.buildSeedSummary(account);
+    const calendarLines = summary
+      .split('\n')
+      .filter((line) => line.toLowerCase().includes('calendar: connected'));
+
+    expect(calendarLines).toHaveLength(1);
+    expect(calendarLines[0]).toContain('get_calendar_events');
+  });
+
+  it('says nothing about the calendar when disconnected', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(of([]));
+    googleTokenService.getStatus.mockResolvedValue('disconnected');
+
+    const summary = await service.buildSeedSummary(account);
+
+    expect(summary.toLowerCase()).not.toContain('calendar: connected');
+  });
+
+  it('says nothing about the calendar when revoked', async () => {
+    accountRepo.findOne.mockResolvedValue({ id: 42, city: 'Lviv' });
+    wardrobeSend.mockReturnValue(of([]));
+    googleTokenService.getStatus.mockResolvedValue('revoked');
+
+    const summary = await service.buildSeedSummary(account);
+
+    expect(summary.toLowerCase()).not.toContain('calendar: connected');
   });
 
   it('reports counts by type and status, the account city and the season as a hint', async () => {
@@ -632,6 +785,8 @@ describe('ContextBuilderService — fetchReferenceImageParts', () => {
       {
         get: (_: string, fallback?: unknown) => fallback,
       } as unknown as ConfigService,
+      { getStatus: jest.fn() } as unknown as GoogleTokenService,
+      { getEvents: jest.fn() } as unknown as GoogleCalendarService,
     );
     fetchMock = jest.fn();
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -792,6 +947,10 @@ describe('ContextBuilderService — pinned to the findAll select list', () => {
       {
         get: (_: string, fallback?: unknown) => fallback,
       } as unknown as ConfigService,
+      {
+        getStatus: jest.fn().mockResolvedValue('disconnected'),
+      } as unknown as GoogleTokenService,
+      { getEvents: jest.fn() } as unknown as GoogleCalendarService,
     );
   });
 

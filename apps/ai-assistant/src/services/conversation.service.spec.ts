@@ -266,6 +266,7 @@ describe('ConversationService — handleChat history replay', () => {
     fetchReferenceImageParts: jest.Mock;
     buildSeedSummary: jest.Mock;
     executeTool: jest.Mock;
+    isCalendarConnected: jest.Mock;
   };
   let geminiClient: { generateChatResponse: jest.Mock };
   let webhookQueueService: { scheduleJob: jest.Mock };
@@ -303,6 +304,7 @@ describe('ConversationService — handleChat history replay', () => {
       fetchReferenceImageParts: jest.fn().mockResolvedValue([]),
       buildSeedSummary: jest.fn().mockResolvedValue('Wardrobe summary'),
       executeTool: jest.fn().mockResolvedValue({ items: [] }),
+      isCalendarConnected: jest.fn().mockResolvedValue(false),
     };
     geminiClient = {
       generateChatResponse: jest
@@ -421,6 +423,19 @@ describe('ConversationService — handleChat history replay', () => {
     expect(call).not.toHaveProperty('weather');
   });
 
+  it('passes the calendar connection state from ContextBuilderService through to the model call', async () => {
+    contextBuilder.isCalendarConnected.mockResolvedValue(true);
+
+    await service.handleChat(accountId, {
+      prompt: 'what should I wear',
+      sessionId,
+    } as any);
+
+    expect(contextBuilder.isCalendarConnected).toHaveBeenCalledWith(accountId);
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.calendarConnected).toBe(true);
+  });
+
   it('binds the signed-in account into the tool executor', async () => {
     await service.handleChat(accountId, {
       prompt: 'what should I wear',
@@ -501,6 +516,7 @@ describe('ConversationService — handleOutfitSuggestion', () => {
     fetchWardrobeItems: jest.Mock;
     fetchWeatherForAccount: jest.Mock;
     fetchRecentlyWorn: jest.Mock;
+    isCalendarConnected: jest.Mock;
   };
   let geminiClient: { generateChatResponse: jest.Mock };
   let webhookQueueService: { scheduleJob: jest.Mock };
@@ -549,6 +565,7 @@ describe('ConversationService — handleOutfitSuggestion', () => {
       fetchWardrobeItems: jest.fn(),
       fetchWeatherForAccount: jest.fn(),
       fetchRecentlyWorn: jest.fn(),
+      isCalendarConnected: jest.fn().mockResolvedValue(false),
     };
     geminiClient = {
       generateChatResponse: jest.fn().mockResolvedValue({
@@ -594,6 +611,16 @@ describe('ConversationService — handleOutfitSuggestion', () => {
       { type: 'jacket' },
       { id: accountId, name: 'Test', email: 't@e.com' },
     );
+  });
+
+  it('passes the calendar connection state from ContextBuilderService through to the model call', async () => {
+    contextBuilder.isCalendarConnected.mockResolvedValue(true);
+
+    await service.handleOutfitSuggestion(accountId, dto);
+
+    expect(contextBuilder.isCalendarConnected).toHaveBeenCalledWith(accountId);
+    const call = geminiClient.generateChatResponse.mock.calls[0][0];
+    expect(call.calendarConnected).toBe(true);
   });
 
   it('conveys occasion, styleHint and season as plain text in the seeded user turn, not a bespoke prompt object', async () => {

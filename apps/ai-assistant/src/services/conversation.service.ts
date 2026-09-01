@@ -59,11 +59,13 @@ export class ConversationService {
       dto.topic ?? this.deriveTopic(dto.prompt),
     );
 
-    const [referenceImageUrls, history, seedSummary] = await Promise.all([
-      this.contextBuilder.fetchReferenceImageUrls(dto.referenceImageKeys),
-      this.loadChatHistory(session.id),
-      this.contextBuilder.buildSeedSummary(accountPreview),
-    ]);
+    const [referenceImageUrls, history, seedSummary, calendarConnected] =
+      await Promise.all([
+        this.contextBuilder.fetchReferenceImageUrls(dto.referenceImageKeys),
+        this.loadChatHistory(session.id),
+        this.contextBuilder.buildSeedSummary(accountPreview),
+        this.contextBuilder.isCalendarConnected(accountId),
+      ]);
 
     const referenceImages =
       await this.contextBuilder.fetchReferenceImageParts(referenceImageUrls);
@@ -81,6 +83,7 @@ export class ConversationService {
       referenceImages,
       seedSummary,
       contextItemIds: dto.contextItemIds,
+      calendarConnected,
       // accountId is bound here, not declared as a tool parameter, so the model
       // cannot address another user's wardrobe whatever arguments it emits.
       executeTool: (name, args) =>
@@ -138,9 +141,10 @@ export class ConversationService {
       dto.occasion,
     );
 
-    const [history, seedSummary] = await Promise.all([
+    const [history, seedSummary, calendarConnected] = await Promise.all([
       this.loadChatHistory(session.id),
       this.contextBuilder.buildSeedSummary(accountPreview),
+      this.contextBuilder.isCalendarConnected(accountId),
     ]);
 
     const prompt = this.composeOutfitRequestPrompt(dto);
@@ -164,6 +168,7 @@ export class ConversationService {
       // client-visible transcript doesn't show internal tool-name plumbing.
       additionalInstruction:
         'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
+      calendarConnected,
       executeTool: (name, args) =>
         this.contextBuilder.executeTool(name, args, accountPreview),
     });

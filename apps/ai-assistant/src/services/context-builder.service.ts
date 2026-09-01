@@ -27,6 +27,8 @@ import { WeatherService } from './weather.service';
 import { getCurrentSeason } from './current-season.util';
 import { WeatherContext } from '../types/weather-context.type';
 import { TOOL_NAMES, colorHexToLabel, colorLabelToHex } from './wardrobe-tools';
+import { GoogleCalendarService } from '../calendar/google-calendar.service';
+import { GoogleTokenService } from '../calendar/google-token.service';
 
 const MAX_REFERENCE_IMAGES = 5;
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -68,6 +70,8 @@ export class ContextBuilderService {
     private readonly accountRepository: Repository<UserAccountEntity>,
     private readonly weatherService: WeatherService,
     private readonly configService: ConfigService,
+    private readonly googleTokenService: GoogleTokenService,
+    private readonly googleCalendarService: GoogleCalendarService,
   ) {
     this.toolRowLimit = Number(
       this.configService.get<number>(
@@ -107,6 +111,8 @@ export class ContextBuilderService {
           return await this.getRecentOutfits(account, args);
         case TOOL_NAMES.proposeOutfit:
           return await this.validateOutfitProposal(account, args);
+        case TOOL_NAMES.getCalendarEvents:
+          return await this.getCalendarEvents(account, args);
         default:
           return { error: `Unknown tool "${name}".` };
       }
@@ -227,6 +233,37 @@ export class ContextBuilderService {
   }
 
   /**
+   * `accountId` is never read from `args` — the signed-in account is the only
+   * one this ever queries, whatever account identifier the model supplies.
+   * `GoogleCalendarService.getEvents` already reports a disconnected or
+   * revoked credential as `{ connected: false, rows: [] }` without throwing,
+   * so a broken calendar degrades the same way a broken weather lookup does.
+   */
+  private async getCalendarEvents(
+    account: UserAccountPreview,
+    args: Record<string, unknown>,
+  ): Promise<ToolResult> {
+    const daysAhead = this.positiveInt(args.days_ahead) ?? undefined;
+    const result = await this.googleCalendarService.getEvents(
+      account.id,
+      daysAhead,
+    );
+
+    return {
+      connected: result.connected,
+      total: result.rows.length,
+      truncated: false,
+      rows: result.rows,
+    };
+  }
+
+  /** Whether `accountId` has an active (not disconnected, not revoked) Google Calendar credential. */
+  async isCalendarConnected(accountId: number): Promise<boolean> {
+    const status = await this.googleTokenService.getStatus(accountId);
+    return status === 'active';
+  }
+
+  /**
    * `propose_outfit` is a terminal tool: the model is trusted on `summary` and
    * `rationale`, but `itemIds` is user-controlled input reaching another
    * account's data if left unchecked, so every id is checked against what
@@ -298,9 +335,10 @@ export class ContextBuilderService {
    * the weather, and `get_weather` is the authority.
    */
   async buildSeedSummary(account: UserAccountPreview): Promise<string> {
-    const [items, city] = await Promise.all([
+    const [items, city, calendarConnected] = await Promise.all([
       this.fetchAllItemsForSummary(account),
       this.fetchAccountCity(account.id),
+      this.isCalendarConnected(account.id),
     ]);
 
     const byType = this.tally(items.map((item) => String(item.type)));
@@ -313,6 +351,13 @@ export class ContextBuilderService {
       `- By status: ${this.formatTally(byStatus)}`,
       `- Account city: ${city ?? 'not set'}`,
       `- Calendar season hint: ${getCurrentSeason()} (a hint from today's date, not a filter — check get_weather before relying on it)`,
+      // Omitted entirely when disconnected — a line that always says "no
+      // calendar" is as misleading as a tool that always says the same.
+      ...(calendarConnected
+        ? [
+            "- Calendar: connected — call get_calendar_events for the user's upcoming events.",
+          ]
+        : []),
     ].join('\n');
   }
 
