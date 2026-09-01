@@ -6,6 +6,7 @@ import * as Joi from 'joi';
 
 import { DatabaseModule, RmqModule } from '@app/common';
 import { HttpService } from '@app/common/http';
+import { ErrorLoggerModule } from '@app/logger';
 import {
   AssistantMessageEntity,
   AssistantOutfitSuggestionEntity,
@@ -49,6 +50,10 @@ import { GoogleTokenService } from './calendar/google-token.service';
         RABBIT_MQ_AI_ASSISTANT_QUEUE: Joi.string().required(),
         RABBIT_MQ_WARDROBE_QUEUE: Joi.string().required(),
         RABBIT_MQ_MEDIA_STORAGE_QUEUE: Joi.string().required(),
+        RABBIT_MQ_LOGGER_QUEUE: Joi.string().required(),
+        ERROR_LOG_MIN_SEVERITY: Joi.string()
+          .valid('warn', 'error', 'fatal')
+          .optional(),
         PROTECTED_DATA_SECRET: Joi.string().min(16).required(),
         GEMINI_API_KEY: Joi.string().required(),
         GEMINI_MODEL: Joi.string().required(),
@@ -101,6 +106,8 @@ import { GoogleTokenService } from './calendar/google-token.service';
     ]),
     RmqModule.register({ name: WARDROBE_SERVICE }),
     RmqModule.register({ name: MEDIA_STORAGE_SERVICE }),
+    // Must stay AFTER ConfigModule.forRoot — see wardrobe.module.ts for why.
+    ErrorLoggerModule.register({ serviceName: 'ai-assistant' }),
   ],
   controllers: [
     AiAssistantController,
