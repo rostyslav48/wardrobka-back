@@ -176,6 +176,15 @@ export class WardrobeService {
    * Terminal step of a generation job. Guarded on `image_status = 'pending'`
    * so a redelivered RMQ message cannot overwrite an already-ready item.
    *
+   * A read-then-write (`findOneBy` then `save`) leaves a window where two
+   * deliveries of the same job — arriving within the same few milliseconds —
+   * both observe `pending` and both save, orphaning one of the two generated
+   * objects. The UPDATE below is the guard: it carries `WHERE image_status =
+   * 'pending'` in the same statement that flips it, so Postgres serialises
+   * concurrent attempts on the row and only one can ever match. The `old` CTE
+   * captures the pre-update `img_path` in that same atomic statement, since
+   * `RETURNING` alone only ever exposes the post-update row.
+   *
    * The outcome tells the caller which cleanup it owns: only `applied` means
    * the files this job produced belong to this item, and only `not_found`
    * means the generated object has no owner left at all.
@@ -186,47 +195,53 @@ export class WardrobeService {
     status: ImageStatus.Ready | ImageStatus.Failed,
     imgPath?: string,
   ): Promise<ApplyGeneratedImageOutcome> {
-    const item = await this.wardrobeItemRepository.findOneBy({
-      id: itemId,
-      accountId,
-    });
+    const rows: Array<{
+      previous_img_path: string | null;
+      new_img_path: string | null;
+    }> = await this.entityManager.query(
+      `WITH old AS (
+         SELECT img_path FROM wardrobe_item
+         WHERE id = $1 AND account_id = $2 AND image_status = 'pending'
+       )
+       UPDATE wardrobe_item
+       SET image_status = $3::text,
+           image_pending_since = NULL,
+           img_path = CASE
+             WHEN $3::text = 'ready' AND $4::text IS NOT NULL THEN $4::text
+             ELSE img_path
+           END,
+           temp_image_key = CASE WHEN $3::text = 'ready' THEN NULL ELSE temp_image_key END
+       WHERE id = $1 AND account_id = $2 AND image_status = 'pending'
+       RETURNING (SELECT img_path FROM old) AS previous_img_path, img_path AS new_img_path`,
+      [itemId, accountId, status, imgPath ?? null],
+    );
 
-    if (!item) {
-      this.logger.warn(
-        `Generated image for item ${itemId} has no matching item — dropping it`,
-      );
-      return ApplyGeneratedImageOutcome.NotFound;
-    }
+    if (rows.length === 0) {
+      // The atomic UPDATE already lost the race (or never had a row to win);
+      // this lookup is only to word the log correctly, never to decide the write.
+      const stillExists = await this.wardrobeItemRepository.exists({
+        where: { id: itemId, accountId },
+      });
 
-    if (item.image_status !== ImageStatus.Pending) {
+      if (!stillExists) {
+        this.logger.warn(
+          `Generated image for item ${itemId} has no matching item — dropping it`,
+        );
+        return ApplyGeneratedImageOutcome.NotFound;
+      }
+
       this.logger.warn(
-        `Item ${itemId} is already '${item.image_status}' — ignoring a ` +
-          `duplicate '${status}' result`,
+        `Item ${itemId} was not 'pending' — ignoring a duplicate '${status}' result`,
       );
       return ApplyGeneratedImageOutcome.NotPending;
     }
 
-    const previousImgPath = item.img_path;
-
-    item.image_status = status;
-    if (status === ImageStatus.Ready && imgPath) {
-      item.img_path = imgPath;
-    }
-
-    // A failure keeps the original under tmp/ so "Generate again" can re-run
-    // from it; a success no longer needs it and the caller deletes the object.
-    if (status === ImageStatus.Ready) {
-      item.temp_image_key = null;
-    }
-    // Either way the job is over, so it is no longer a candidate for the
-    // staleness sweep.
-    item.image_pending_since = null;
-
-    await this.wardrobeItemRepository.save(item);
+    const { previous_img_path: previousImgPath, new_img_path: newImgPath } =
+      rows[0];
 
     // Steady state is one image per item: if anything was already stored under
     // the item, the generated one replaces it rather than joining it.
-    if (previousImgPath && previousImgPath !== item.img_path) {
+    if (previousImgPath && previousImgPath !== newImgPath) {
       await this.mediaStorageService.delete(previousImgPath);
     }
 

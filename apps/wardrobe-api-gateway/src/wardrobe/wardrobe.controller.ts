@@ -24,10 +24,17 @@ import {
   CreateWardrobeItemRequestDto,
   UpdateWardrobeItemRequestDto,
 } from '@app/wardrobe/dto';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { ImageUploadValidationPipe } from '@app/wardrobe-api-gateway/wardrobe/validators';
+import {
+  FriendlyThrottlerGuard,
+  ImageGenerationThrottlerGuard,
+} from '@app/wardrobe-api-gateway/wardrobe/guards';
 import { CurrentUser } from '@app/wardrobe-api-gateway/auth/decorators';
-import { IMAGE_GENERATION_THROTTLE } from '@app/wardrobe-api-gateway/wardrobe/constants';
+import {
+  ANALYZE_IMAGE_THROTTLE,
+  IMAGE_GENERATION_THROTTLE,
+} from '@app/wardrobe-api-gateway/wardrobe/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('wardrobe')
@@ -36,7 +43,7 @@ export class WardrobeController {
 
   @Post()
   @UseInterceptors(FileInterceptor('image'))
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(ImageGenerationThrottlerGuard)
   @Throttle(IMAGE_GENERATION_THROTTLE)
   create(
     @Body() createWardrobeDto: CreateWardrobeItemRequestDto,
@@ -83,7 +90,7 @@ export class WardrobeController {
    * create: it starts the same paid job, so it cannot be the cheap way in.
    */
   @Post(':id/generate-image')
-  @UseGuards(ThrottlerGuard)
+  @UseGuards(ImageGenerationThrottlerGuard)
   @Throttle(IMAGE_GENERATION_THROTTLE)
   retryImageGeneration(
     @Param('id') id: string,
@@ -94,6 +101,8 @@ export class WardrobeController {
 
   @Post('analyze-image')
   @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(FriendlyThrottlerGuard)
+  @Throttle(ANALYZE_IMAGE_THROTTLE)
   analyzeImage(
     @CurrentUser() user: UserAccountPreview,
     @UploadedFile(ImageUploadValidationPipe)
