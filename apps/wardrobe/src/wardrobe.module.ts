@@ -6,6 +6,7 @@ import * as Joi from 'joi';
 
 import { RmqModule } from '@app/common';
 import { DatabaseModule } from '@app/common';
+import { ErrorLoggerModule } from '@app/logger';
 import { MediaStorageModule } from './media-storage/media-storage.module';
 
 import { AI_ASSISTANT_SERVICE } from '@app/wardrobe-api-gateway/constants';
@@ -31,6 +32,10 @@ import { UserAccountEntity } from '@app/common/database/entities/auth/user-accou
         RABBIT_MQ_URI: Joi.string(),
         RABBIT_MQ_WARDROBE_QUEUE: Joi.string(),
         RABBIT_MQ_AI_ASSISTANT_QUEUE: Joi.string(),
+        RABBIT_MQ_LOGGER_QUEUE: Joi.string(),
+        ERROR_LOG_MIN_SEVERITY: Joi.string()
+          .valid('warn', 'error', 'fatal')
+          .optional(),
         USER_IMAGES_FOLDER_PATH: Joi.string(),
       }),
       envFilePath: ['./apps/wardrobe/.env', './libs/common/src/database/.env'],
@@ -44,6 +49,10 @@ import { UserAccountEntity } from '@app/common/database/entities/auth/user-accou
     // earlier it reads undefined and Nest silently falls back to the queue
     // named 'default', where the job sits forever with nothing consuming it.
     RmqModule.register({ name: AI_ASSISTANT_SERVICE }),
+    // Same ordering requirement as above: ErrorLoggerModule.register()
+    // internally does RmqModule.register({ name: LOGGER_SERVICE }), which
+    // reads RABBIT_MQ_LOGGER_QUEUE through ConfigService at construction time.
+    ErrorLoggerModule.register({ serviceName: 'wardrobe' }),
     TypeOrmModule.forFeature([
       UserAccountEntity,
       WardrobeItemEntity,
