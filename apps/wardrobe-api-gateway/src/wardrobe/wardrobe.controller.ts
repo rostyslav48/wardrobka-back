@@ -69,6 +69,8 @@ export class WardrobeController {
 
   @Patch(':id')
   @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(ImageGenerationThrottlerGuard)
+  @Throttle(IMAGE_GENERATION_THROTTLE)
   update(
     @Param('id') id: string,
     @Body()
