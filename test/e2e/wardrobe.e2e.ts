@@ -320,4 +320,23 @@ test.describe('POST /wardrobe/:id/generate-image', () => {
     );
     expect(second.status()).toBe(429);
   });
+
+  test('shares its rate limit bucket with POST /wardrobe, so alternating endpoints cannot double the rate', async ({
+    request,
+  }) => {
+    await throttleGap(5_100);
+    const created = await postJson(request, '/wardrobe', owner, {
+      type: 'shirt',
+      color: '#0000FF',
+      name: 'Bucket Share Seed',
+      season: 'summer',
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    const newItemId = (await created.json()).id;
+
+    const res = await request.post(`/wardrobe/${newItemId}/generate-image`, {
+      headers: auth(owner),
+    });
+    expect(res.status()).toBe(429);
+  });
 });
