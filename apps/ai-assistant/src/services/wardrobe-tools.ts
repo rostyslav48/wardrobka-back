@@ -15,6 +15,7 @@ export const TOOL_NAMES = {
   getWeather: 'get_weather',
   getRecentOutfits: 'get_recent_outfits',
   proposeOutfit: 'propose_outfit',
+  getCalendarEvents: 'get_calendar_events',
 } as const;
 
 /**
@@ -197,3 +198,33 @@ export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
     },
   },
 ];
+
+/**
+ * Declared separately from `TOOL_DECLARATIONS` — the caller splices this in
+ * only for an exchange where the account has an active Google Calendar
+ * credential, so a disconnected user never sees a tool that always answers
+ * "not connected". `accountId` is bound server-side by the handler and is
+ * deliberately absent here, same as every other declaration in this file.
+ */
+export const CALENDAR_EVENTS_DECLARATION: FunctionDeclaration = {
+  name: TOOL_NAMES.getCalendarEvents,
+  description:
+    "Get events from the user's primary Google calendar for the next few days. Use it when " +
+    'a request depends on what the user is doing (an occasion, a meeting, travel) rather than ' +
+    'just the weather or the wardrobe. Each row has the date, time, title, location and ' +
+    'attendee count — infer the dress code yourself from those fields; there is no fixed ' +
+    'category to look up.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      days_ahead: {
+        type: Type.INTEGER,
+        minimum: 1,
+        maximum: 7,
+        default: 2,
+        description:
+          'How many days ahead to look, starting today. Clamped server-side to 1-7. Defaults to 2 (today and tomorrow).',
+      },
+    },
+  },
+};

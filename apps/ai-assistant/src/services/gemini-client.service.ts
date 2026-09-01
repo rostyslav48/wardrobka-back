@@ -9,7 +9,11 @@ import {
   Part,
 } from '@google/genai';
 
-import { TOOL_DECLARATIONS, TOOL_NAMES } from './wardrobe-tools';
+import {
+  CALENDAR_EVENTS_DECLARATION,
+  TOOL_DECLARATIONS,
+  TOOL_NAMES,
+} from './wardrobe-tools';
 
 export interface ReferenceImagePart {
   mimeType: string;
@@ -54,6 +58,13 @@ interface ChatContext {
    * client-visible chat transcript.
    */
   additionalInstruction?: string;
+  /**
+   * True only when the account has an active Google Calendar credential.
+   * `get_calendar_events` is spliced into the tool list solely for that
+   * exchange — a disconnected account never sees a tool that can only ever
+   * answer "not connected".
+   */
+  calendarConnected?: boolean;
   executeTool: ToolExecutor;
 }
 
@@ -67,6 +78,8 @@ const SYSTEM_INSTRUCTION = [
   'Use the weather forecast, season and recently-worn history when they are relevant to the request.',
   'You have tools for reading the wardrobe, the weather and the recently-worn log. Call them only when the answer actually depends on that data — general clothing-care and styling questions need no tool call at all.',
   'Prefer one well-filtered search_wardrobe call over several broad ones. If a result comes back with truncated set to true, narrow the filters rather than reasoning over the partial list.',
+  'When get_calendar_events is available and relevant, infer the dress code for each event yourself from its title, time and location — there is no fixed category list to match against.',
+  'If a day holds more than one event, either propose a single outfit that works for all of them, or say plainly which event you optimised for and what to swap for the others.',
   'Keep responses concise and practical.',
 ].join('\n');
 
@@ -128,10 +141,16 @@ export class GeminiClientService {
     ];
 
     const cache = new Map<string, Record<string, unknown>>();
+    const calendarConnected = context.calendarConnected ?? false;
     let callsUsed = 0;
 
     for (let round = 1; round <= this.maxToolRounds; round++) {
-      const response = await this.send(contents, `round ${round}`, true);
+      const response = await this.send(
+        contents,
+        `round ${round}`,
+        true,
+        calendarConnected,
+      );
       const calls = response.functionCalls ?? [];
 
       if (!calls.length) {
@@ -250,14 +269,18 @@ export class GeminiClientService {
     contents: Content[],
     label: string,
     toolsEnabled: boolean,
+    calendarConnected = false,
   ): Promise<GenerateContentResponse> {
     const startedAt = Date.now();
+    const functionDeclarations = calendarConnected
+      ? [...TOOL_DECLARATIONS, CALENDAR_EVENTS_DECLARATION]
+      : TOOL_DECLARATIONS;
     const response = await this.client.models.generateContent({
       model: this.modelId,
       contents,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+        tools: [{ functionDeclarations }],
         toolConfig: {
           functionCallingConfig: {
             mode: toolsEnabled
