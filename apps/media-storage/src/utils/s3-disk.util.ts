@@ -1,13 +1,25 @@
+import { Logger } from '@nestjs/common';
+
 import { DiskUtil } from '@app/media-storage/utils/disk-util.type';
 import {
   DeleteObjectCommand,
+  GetBucketLifecycleConfigurationCommand,
   GetObjectCommand,
+  LifecycleRule,
+  PutBucketLifecycleConfigurationCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+import {
+  TEMP_UPLOAD_EXPIRY_DAYS,
+  TEMP_UPLOAD_LIFECYCLE_RULE_ID,
+  TEMP_UPLOAD_PREFIX,
+} from '@app/media-storage/constants';
+
 export class S3DiskUtil implements DiskUtil {
+  private readonly logger = new Logger(S3DiskUtil.name);
   private readonly s3Client: S3Client;
 
   constructor(
@@ -41,6 +53,71 @@ export class S3DiskUtil implements DiskUtil {
     return await getSignedUrl(this.s3Client, command, {
       expiresIn,
     });
+  }
+
+  /**
+   * Installs the `tmp/` expiry rule, preserving any other lifecycle rules the
+   * bucket already carries — PutBucketLifecycleConfiguration replaces the whole
+   * configuration, so the existing set has to be read and merged first.
+   *
+   * Never throws: a bucket whose credentials lack s3:PutLifecycleConfiguration
+   * must still serve uploads. The temp objects are deleted on success anyway;
+   * the rule only catches originals orphaned by a job that died mid-flight.
+   */
+  public async ensureTempPrefixLifecycleRule(): Promise<boolean> {
+    const rule: LifecycleRule = {
+      ID: TEMP_UPLOAD_LIFECYCLE_RULE_ID,
+      Status: 'Enabled',
+      Filter: { Prefix: `${TEMP_UPLOAD_PREFIX}/` },
+      Expiration: { Days: TEMP_UPLOAD_EXPIRY_DAYS },
+      // Without this an interrupted multipart upload under tmp/ leaves parts
+      // that the object-expiration rule above cannot reach.
+      AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+    };
+
+    try {
+      const existing = await this.getLifecycleRules();
+      const others = existing.filter(
+        (candidate) => candidate.ID !== TEMP_UPLOAD_LIFECYCLE_RULE_ID,
+      );
+
+      await this.s3Client.send(
+        new PutBucketLifecycleConfigurationCommand({
+          Bucket: this.bucketName,
+          LifecycleConfiguration: { Rules: [...others, rule] },
+        }),
+      );
+
+      this.logger.log(
+        `Lifecycle rule "${TEMP_UPLOAD_LIFECYCLE_RULE_ID}" active on ` +
+          `${this.bucketName}: ${TEMP_UPLOAD_PREFIX}/ expires after ` +
+          `${TEMP_UPLOAD_EXPIRY_DAYS} days`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Could not install the ${TEMP_UPLOAD_PREFIX}/ lifecycle rule on ` +
+          `${this.bucketName}: ${(error as Error).message}. Orphaned temp ` +
+          'originals will not expire automatically until it is applied.',
+      );
+      return false;
+    }
+  }
+
+  private async getLifecycleRules(): Promise<LifecycleRule[]> {
+    try {
+      const current = await this.s3Client.send(
+        new GetBucketLifecycleConfigurationCommand({ Bucket: this.bucketName }),
+      );
+      return current.Rules ?? [];
+    } catch (error) {
+      // A bucket with no configuration at all answers NoSuchLifecycleConfiguration;
+      // that is the empty set, not a failure.
+      if ((error as { name?: string })?.name === 'NoSuchLifecycleConfiguration') {
+        return [];
+      }
+      throw error;
+    }
   }
 
   public async delete(filePath: string): Promise<boolean> {

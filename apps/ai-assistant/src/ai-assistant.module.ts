@@ -20,10 +20,13 @@ import {
 } from '@app/wardrobe-api-gateway/constants';
 
 import { AiAssistantController } from './controllers/ai-assistant.controller';
+import { ProductImageController } from './controllers/product-image.controller';
 import { ConversationService } from './services/conversation.service';
 import { GeminiClientService } from './services/gemini-client.service';
 import { ContextBuilderService } from './services/context-builder.service';
 import { ImageAnalyzerService } from './services/image-analyzer.service';
+import { ProductImageGeneratorService } from './services/product-image-generator.service';
+import { MediaStorageService } from '@app/wardrobe/media-storage/media-storage.service';
 import { WeatherService } from './services/weather.service';
 import { WebhookQueueService } from './services/webhook-queue.service';
 import { WebhookDispatcherJob } from './jobs/webhook-dispatcher.job';
@@ -59,6 +62,15 @@ import { GoogleTokenService } from './calendar/google-token.service';
           .integer()
           .min(1000)
           .default(15000),
+        // Phase 0 default; gemini-3-pro-image is the escalation.
+        GEMINI_IMAGE_MODEL: Joi.string().default('gemini-3.1-flash-image'),
+        GEMINI_IMAGE_TIMEOUT_MS: Joi.number()
+          .integer()
+          .min(1000)
+          .default(60000),
+        // Destination folder for the generated image, shared with the wardrobe
+        // service so both write item images to the same prefix.
+        USER_IMAGES_FOLDER_PATH: Joi.string().required(),
         AI_ASSISTANT_WEBHOOK_URL: Joi.string().uri().required(),
         AI_ASSISTANT_WEBHOOK_AUTH_HEADER: Joi.string().required(),
         WEBHOOK_MAX_ATTEMPTS: Joi.number().default(5),
@@ -90,12 +102,18 @@ import { GoogleTokenService } from './calendar/google-token.service';
     RmqModule.register({ name: WARDROBE_SERVICE }),
     RmqModule.register({ name: MEDIA_STORAGE_SERVICE }),
   ],
-  controllers: [AiAssistantController, CalendarController],
+  controllers: [
+    AiAssistantController,
+    CalendarController,
+    ProductImageController,
+  ],
   providers: [
     ConversationService,
     GeminiClientService,
     ContextBuilderService,
     ImageAnalyzerService,
+    ProductImageGeneratorService,
+    MediaStorageService,
     WeatherService,
     WebhookQueueService,
     WebhookDispatcherJob,

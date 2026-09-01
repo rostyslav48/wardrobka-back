@@ -8,4 +8,7 @@ export const AI_ASSISTANT_REQUESTS = {
   getOutfitSuggestions: 'ai-assistant/get-outfit-suggestions',
   deleteOutfitSuggestion: 'ai-assistant/delete-outfit-suggestion',
   analyzeImage: 'ai-assistant/analyze-image',
+  // Fire-and-forget event (emit, not send): the item is already saved as
+  // `pending` before this is published, so nothing waits on a reply.
+  generateProductImage: 'ai-assistant/generate-product-image',
 };

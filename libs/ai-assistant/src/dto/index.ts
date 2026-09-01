@@ -8,3 +8,4 @@ export * from './recent-suggestion.dto';
 export * from './outfit-suggestions-query.dto';
 export * from './analyze-image-request.dto';
 export * from './analyzed-image-attributes.dto';
+export * from './generate-product-image-request.dto';
