@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { catchError, map, Observable, of, switchMap, tap } from 'rxjs';
 
 import { HttpService } from '@app/common/http';
+import { ErrorLoggerService } from '@app/logger';
 
 import { DayForecast, WeatherContext } from '../types/weather-context.type';
 
@@ -42,6 +43,7 @@ export class WeatherService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly errorLogger: ErrorLoggerService,
   ) {
     this.cacheTtlMs = Number(
       this.configService.get<number>(
@@ -90,11 +92,25 @@ export class WeatherService {
           .pipe(map((data) => this.mapResponse(location.name, data)));
       }),
       catchError((error) => {
-        this.logger.warn(
-          `Weather forecast failed for "${city}": ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Weather forecast failed for "${city}": ${message}`);
+        try {
+          this.errorLogger.error({
+            context: WeatherService.name,
+            message,
+            errorName: error instanceof Error ? error.name : undefined,
+            stack: error instanceof Error ? error.stack : undefined,
+            meta: { city },
+          });
+        } catch (loggingError) {
+          this.logger.warn(
+            `Failed to write error log for weather failure: ${
+              loggingError instanceof Error
+                ? loggingError.message
+                : String(loggingError)
+            }`,
+          );
+        }
         return of(null);
       }),
       tap((value) =>
