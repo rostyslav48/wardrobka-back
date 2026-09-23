@@ -5,11 +5,16 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { FitType, ItemType, Season, Size } from '@app/wardrobe/enums';
 import { SWATCHES } from '@app/wardrobe/constants';
 
-/** Everything but `is_clothing` is optional: a field is present only when the
- * model could confidently detect it, and every present value is already
+/** `is_clothing` is always present: a response the model returns unparseably
+ * (missing/non-boolean field, malformed JSON, empty text, …) defaults it to
+ * `false` rather than dropping the key, so a consumer that checks
+ * `is_clothing === false` to withhold auto-fill fails safe instead of
+ * silently treating "we don't know" as "yes, it's clothing" — the exact
+ * QA-43 failure mode. Every other field stays optional: present only when
+ * the model could confidently detect it, and every present value is already
  * validated against its enum / palette — never passed through unchecked. */
 export interface AnalyzedImageAttributes {
-  is_clothing?: boolean;
+  is_clothing: boolean;
   type?: ItemType;
   color?: string;
   season?: Season;
@@ -176,10 +181,9 @@ export class ImageAnalyzerService {
   }
 
   private toAttributes(raw: RawAnalysis): AnalyzedImageAttributes {
-    const attributes: AnalyzedImageAttributes = {};
-
-    const isClothing = this.toBoolean(raw.is_clothing);
-    if (isClothing !== undefined) attributes.is_clothing = isClothing;
+    const attributes: AnalyzedImageAttributes = {
+      is_clothing: this.toBoolean(raw.is_clothing) ?? false,
+    };
 
     const type = this.toEnumValue(raw.type, Object.values(ItemType));
     if (type) attributes.type = type as ItemType;

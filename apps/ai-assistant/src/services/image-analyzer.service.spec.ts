@@ -229,7 +229,7 @@ describe('ImageAnalyzerService', () => {
     expect(result.name).toBeUndefined();
   });
 
-  it('handles malformed (non-JSON) model output without throwing', async () => {
+  it('handles malformed (non-JSON) model output without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({
       text: 'not valid json {{{',
       usageMetadata: {},
@@ -237,10 +237,10 @@ describe('ImageAnalyzerService', () => {
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
   });
 
-  it('handles a JSON array response (not an object) without throwing', async () => {
+  it('handles a JSON array response (not an object) without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({
       text: '[1, 2, 3]',
       usageMetadata: {},
@@ -248,15 +248,32 @@ describe('ImageAnalyzerService', () => {
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
   });
 
-  it('handles an empty response without throwing', async () => {
+  it('handles an empty response without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({ text: '', usageMetadata: {} });
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
+  });
+
+  it('QA-43: defaults is_clothing to false rather than dropping it when the model returns a non-boolean value', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: 'yes',
+        type: ItemType.TShirt,
+        color: 'Black',
+        season: Season.Summer,
+        size: Size.M,
+        fit_type: FitType.Regular,
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.is_clothing).toBe(false);
   });
 
   it('surfaces a timeout as RequestTimeoutException instead of hanging', async () => {

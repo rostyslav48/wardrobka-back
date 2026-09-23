@@ -113,6 +113,30 @@ export class NormaliseUserAccountEmail1788600000000
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP INDEX IF EXISTS "${INDEX_NAME}"`);
 
+    // Two passes, not one. The exact-match UNIQUE("email") stays in force
+    // (non-deferrable) for the whole statement, and a single bulk
+    // `UPDATE ... FROM backup` checks that constraint per row as it is
+    // written, in whatever order Postgres happens to scan the join in — not
+    // only against the final state. A loser's original email can equal the
+    // winner's *current* (post-up) value (e.g. up folded id=5 "Bob@x.com" to
+    // "bob@x.com" and renamed id=9's original "bob@x.com" away): if id=9 is
+    // written back to "bob@x.com" before id=5 is moved off it, the two rows
+    // briefly hold the same value mid-statement and the constraint aborts the
+    // whole UPDATE, even though the final state has no collision at all.
+    // Moving every backed-up row to a placeholder that cannot collide with
+    // any current value first, then to its real original value, removes the
+    // possibility of any transient overlap: pass one's targets are disjoint
+    // from every real email in the table (placeholders), and pass two's
+    // sources are already disjoint from its targets (each row's own
+    // original_email was unique among all rows before `up` ever ran, since
+    // the pre-existing exact-match UNIQUE("email") enforced that).
+    await queryRunner.query(`
+      UPDATE "user_account" ua
+      SET email = '__restore_' || b.user_id || '__'
+      FROM "${BACKUP_TABLE}" b
+      WHERE ua.id = b.user_id
+    `);
+
     await queryRunner.query(`
       UPDATE "user_account" ua
       SET email = b.original_email
