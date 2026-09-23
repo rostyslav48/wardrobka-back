@@ -21,6 +21,17 @@ import { BadRequestException, ValidationError } from '@nestjs/common';
  * no existing test (jest or Playwright) asserts on the old `message: string[]`
  * shape, only on status codes and a few business-exception `code` fields
  * that this does not touch.
+ *
+ * `message` stays populated (as `"<field>:<code>"` per violation, still an
+ * array like the pre-QA-18 shape) rather than a fixed string. The frontend's
+ * LoginScreen (register + login, `wardrobe-assistant-front/components/pages/
+ * login/LoginScreen/index.tsx`) reads `e.response.message` on a 400 and
+ * renders it verbatim in the error banner — that lane (redesign-core) has not
+ * migrated it to read `fields[]` yet. A fixed `'Validation failed'` string
+ * would have made every validation error in that banner identical and lost
+ * all field information; this keeps it field-specific without reintroducing
+ * the raw class-validator sentence QA-18 was filed against. See state.md for
+ * the handoff this still needs at the merge gate.
  */
 export interface ApiFieldError {
   field: string;
@@ -56,11 +67,13 @@ function flattenValidationErrors(
 export function validationExceptionFactory(
   errors: ValidationError[],
 ): BadRequestException {
+  const fields = flattenValidationErrors(errors);
+
   return new BadRequestException({
     statusCode: 400,
     error: 'Bad Request',
     code: 'VALIDATION_ERROR',
-    message: 'Validation failed',
-    fields: flattenValidationErrors(errors),
+    message: fields.map((f) => `${f.field}:${f.code}`),
+    fields,
   });
 }
