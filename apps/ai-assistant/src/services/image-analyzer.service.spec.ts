@@ -72,7 +72,15 @@ describe('ImageAnalyzerService', () => {
     expect(properties.size.enum).toEqual(Object.values(Size));
     expect(properties.fit_type.enum).toEqual(Object.values(FitType));
     expect(properties.color.enum).toEqual(SWATCHES.map((s) => s.label));
-    expect(required).toEqual(['type', 'color', 'season', 'size', 'fit_type']);
+    expect(properties.is_clothing.type).toBe('BOOLEAN');
+    expect(required).toEqual([
+      'is_clothing',
+      'type',
+      'color',
+      'season',
+      'size',
+      'fit_type',
+    ]);
   });
 
   it('passes an AbortSignal deadline to the Gemini call', async () => {
@@ -87,6 +95,7 @@ describe('ImageAnalyzerService', () => {
   it('maps a mocked Gemini response to valid constrained attributes', async () => {
     generateContentMock.mockResolvedValue(
       jsonResponse({
+        is_clothing: true,
         type: ItemType.Jacket,
         color: 'Navy',
         season: Season.Winter,
@@ -103,6 +112,7 @@ describe('ImageAnalyzerService', () => {
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
     expect(result).toEqual({
+      is_clothing: true,
       type: ItemType.Jacket,
       color: '#1B2A4A',
       season: Season.Winter,
@@ -114,6 +124,23 @@ describe('ImageAnalyzerService', () => {
       style: 'Smart casual',
       description: 'A single-breasted navy blazer.',
     });
+  });
+
+  it('QA-43: reports a non-clothing photo as such instead of filling the form', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: false,
+        type: ItemType.Hoodie,
+        color: 'Black',
+        season: Season.Winter,
+        size: Size.S,
+        fit_type: FitType.Skinny,
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.is_clothing).toBe(false);
   });
 
   it('maps the colour label to its exact swatch hex', async () => {
@@ -202,7 +229,7 @@ describe('ImageAnalyzerService', () => {
     expect(result.name).toBeUndefined();
   });
 
-  it('handles malformed (non-JSON) model output without throwing', async () => {
+  it('handles malformed (non-JSON) model output without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({
       text: 'not valid json {{{',
       usageMetadata: {},
@@ -210,10 +237,10 @@ describe('ImageAnalyzerService', () => {
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
   });
 
-  it('handles a JSON array response (not an object) without throwing', async () => {
+  it('handles a JSON array response (not an object) without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({
       text: '[1, 2, 3]',
       usageMetadata: {},
@@ -221,15 +248,32 @@ describe('ImageAnalyzerService', () => {
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
   });
 
-  it('handles an empty response without throwing', async () => {
+  it('handles an empty response without throwing, and defaults is_clothing to false', async () => {
     generateContentMock.mockResolvedValue({ text: '', usageMetadata: {} });
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ is_clothing: false });
+  });
+
+  it('QA-43: defaults is_clothing to false rather than dropping it when the model returns a non-boolean value', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: 'yes',
+        type: ItemType.TShirt,
+        color: 'Black',
+        season: Season.Summer,
+        size: Size.M,
+        fit_type: FitType.Regular,
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.is_clothing).toBe(false);
   });
 
   it('surfaces a timeout as RequestTimeoutException instead of hanging', async () => {
