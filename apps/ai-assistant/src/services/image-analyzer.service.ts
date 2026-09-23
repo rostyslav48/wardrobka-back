@@ -5,10 +5,11 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { FitType, ItemType, Season, Size } from '@app/wardrobe/enums';
 import { SWATCHES } from '@app/wardrobe/constants';
 
-/** Everything is optional: a field is present only when the model could
- * confidently detect it, and every present value is already validated
- * against its enum / palette — never passed through unchecked. */
+/** Everything but `is_clothing` is optional: a field is present only when the
+ * model could confidently detect it, and every present value is already
+ * validated against its enum / palette — never passed through unchecked. */
 export interface AnalyzedImageAttributes {
+  is_clothing?: boolean;
   type?: ItemType;
   color?: string;
   season?: Season;
@@ -22,6 +23,7 @@ export interface AnalyzedImageAttributes {
 }
 
 interface RawAnalysis {
+  is_clothing?: unknown;
   type?: unknown;
   color?: unknown;
   season?: unknown;
@@ -37,11 +39,19 @@ interface RawAnalysis {
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_TIMEOUT_MS = 15000;
 
+// QA-43: a photo of a leaf used to get auto-filled as a Hoodie because every
+// attribute field was mandatory, forcing a guess even for a subject that is
+// not clothing at all. "is_clothing" lets the model say so up front; the
+// other fields stay mandatory only for the model's own consistency (the
+// response schema requires them either way) — the caller is expected to
+// disregard them once is_clothing is false rather than the model being
+// allowed to omit them and break the schema.
 const ANALYSIS_PROMPT = [
-  'You are analyzing a single photo of one clothing item for a wardrobe app.',
+  'You are analyzing a single photo for a wardrobe app that catalogs clothing items.',
+  'First decide whether the photo clearly shows a single wearable clothing item, shoe, bag or accessory. Set "is_clothing" to false for anything else — objects, plants, animals, food, people, scenery, screenshots, etc. — even if it vaguely resembles a garment.',
   'Identify the item and return a JSON object matching the given schema.',
-  '"type", "color", "season", "size" and "fit_type" are required — pick the closest valid value from the schema even if you are not fully certain.',
-  '"name", "brand", "material", "style" and "description" are optional — omit any of them entirely rather than guessing when the photo does not clearly show it. Never invent a brand or a name.',
+  '"is_clothing", "type", "color", "season", "size" and "fit_type" are all required by the schema. When "is_clothing" is true, pick the closest valid value for the others from the schema even if you are not fully certain. When "is_clothing" is false, the other required fields are ignored by the caller — fill them with any valid placeholder rather than leaving the response inconsistent.',
+  '"name", "brand", "material", "style" and "description" are optional — omit any of them entirely rather than guessing when the photo does not clearly show it, and never populate them when "is_clothing" is false. Never invent a brand or a name.',
   'The "color" value must be the single closest swatch label from the enum, even if the garment has multiple colors — pick the dominant one.',
 ].join('\n');
 
@@ -115,6 +125,7 @@ export class ImageAnalyzerService {
     return {
       type: Type.OBJECT,
       properties: {
+        is_clothing: { type: Type.BOOLEAN },
         type: { type: Type.STRING, enum: Object.values(ItemType) },
         color: {
           type: Type.STRING,
@@ -129,7 +140,14 @@ export class ImageAnalyzerService {
         style: { type: Type.STRING },
         description: { type: Type.STRING },
       },
-      required: ['type', 'color', 'season', 'size', 'fit_type'],
+      required: [
+        'is_clothing',
+        'type',
+        'color',
+        'season',
+        'size',
+        'fit_type',
+      ],
     };
   }
 
@@ -159,6 +177,9 @@ export class ImageAnalyzerService {
 
   private toAttributes(raw: RawAnalysis): AnalyzedImageAttributes {
     const attributes: AnalyzedImageAttributes = {};
+
+    const isClothing = this.toBoolean(raw.is_clothing);
+    if (isClothing !== undefined) attributes.is_clothing = isClothing;
 
     const type = this.toEnumValue(raw.type, Object.values(ItemType));
     if (type) attributes.type = type as ItemType;
@@ -202,6 +223,10 @@ export class ImageAnalyzerService {
       return undefined;
     }
     return value;
+  }
+
+  private toBoolean(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
   }
 
   private toColorHex(value: unknown): string | undefined {

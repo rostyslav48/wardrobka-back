@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { test, expect } from '@playwright/test';
 import { takeUser, auth, TestUser } from './support/api';
 
@@ -175,5 +177,48 @@ test.describe('live model', () => {
       await request.get('/ai-assistant/sessions', { headers: auth(user) })
     ).json();
     expect(sessions.length).toBeGreaterThan(0);
+  });
+
+  // QA-43: a photo of a leaf used to get auto-filled as a Hoodie with no
+  // warning. Fixtures are synthetic silhouettes (see fixtures/generate-fixtures.js)
+  // but this is a real POST /wardrobe/analyze-image call through the gateway to
+  // the ai-assistant microservice to a live Gemini model — no mocking.
+  test('a clothing photo is reported as clothing', async ({ request }) => {
+    test.setTimeout(60_000);
+    const res = await request.post('/wardrobe/analyze-image', {
+      headers: auth(user),
+      multipart: {
+        image: {
+          name: 'shirt.png',
+          mimeType: 'image/png',
+          buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'shirt.png')),
+        },
+      },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const body = await res.json();
+    expect(body.is_clothing).toBe(true);
+  });
+
+  test('a non-clothing photo is reported as such instead of being auto-filled', async ({
+    request,
+  }) => {
+    test.setTimeout(60_000);
+    const res = await request.post('/wardrobe/analyze-image', {
+      headers: auth(user),
+      multipart: {
+        image: {
+          name: 'leaf.png',
+          mimeType: 'image/png',
+          buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'leaf.png')),
+        },
+      },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const body = await res.json();
+    expect(
+      body.is_clothing,
+      `analyzer treated an obviously non-clothing photo as clothing: ${JSON.stringify(body)}`,
+    ).toBe(false);
   });
 });
