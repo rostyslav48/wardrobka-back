@@ -34,6 +34,40 @@ test.describe('POST /auth/signup', () => {
     // asserted against the body captured at creation time
     expect(JSON.stringify(user)).not.toContain('$2');
   });
+
+  // QA-01: the backend used to store a whitespace-only name verbatim.
+  test('rejects a whitespace-only name', async ({ request }) => {
+    const res = await request.post('/auth/signup', {
+      data: {
+        name: '   ',
+        email: `qa01-signup-${Date.now()}@example.com`,
+        password: 'Password123!',
+      },
+    });
+    expect([400, 429]).toContain(res.status());
+    expect(res.status(), 'a whitespace-only name must not create an account').not.toBe(
+      201,
+    );
+  });
+
+  // QA-16: same address, different case, must collide with the pooled user
+  // created in beforeAll rather than create a second account.
+  test('rejects a signup that only differs in email casing from an existing account', async ({
+    request,
+  }) => {
+    const res = await request.post('/auth/signup', {
+      data: {
+        name: 'Case Collision',
+        email: user.email.toUpperCase(),
+        password: 'Password123!',
+      },
+    });
+    expect([409, 429]).toContain(res.status());
+    expect(
+      res.status(),
+      'a case-different duplicate of an existing email must not create an account',
+    ).not.toBe(201);
+  });
 });
 
 test.describe('POST /auth/login', () => {
@@ -63,6 +97,17 @@ test.describe('POST /auth/login', () => {
     });
     expect(res.status()).toBeLessThan(500);
     expect(res.ok()).toBe(false);
+  });
+
+  // QA-15: login used to be case-sensitive on the email.
+  test('logs in when the email casing differs from signup', async ({ request }) => {
+    const res = await login(request, {
+      email: user.email.toUpperCase(),
+      password: user.password,
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.email).toBe(user.email.toLowerCase());
   });
 });
 
@@ -164,6 +209,35 @@ test.describe('profile', () => {
       data: { name: 'x' },
     });
     expect(res.status()).toBe(400);
+  });
+
+  // QA-01: the backend used to store a whitespace-only name verbatim.
+  test('PATCH /auth/profile rejects a whitespace-only name', async ({ request }) => {
+    const res = await request.patch('/auth/profile', {
+      headers: auth(user),
+      data: { name: '   ' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // QA-18: the validation error body must be a stable, client-mappable shape —
+  // not a class-validator sentence like "name must be longer than or equal to
+  // 2 characters".
+  test('PATCH /auth/profile validation errors are field/code pairs, not sentences', async ({
+    request,
+  }) => {
+    const res = await request.patch('/auth/profile', {
+      headers: auth(user),
+      data: { name: '   ' },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(Array.isArray(body.fields)).toBe(true);
+    expect(body.fields).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'name' })]),
+    );
+    expect(JSON.stringify(body)).not.toMatch(/must be longer than/i);
   });
 
   test('PATCH /auth/profile requires authentication', async ({ request }) => {

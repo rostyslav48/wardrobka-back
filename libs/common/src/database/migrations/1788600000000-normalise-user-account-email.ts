@@ -79,15 +79,23 @@ export class NormaliseUserAccountEmail1788600000000
       END $$;
     `);
 
-    // Guard: this must always find zero rows given the loop above. If it does
-    // not, something about the data shape was not anticipated — fail the
+    // Guard: this must always find zero rows given the loop above. Group by
+    // lower(email), not the raw column — the raw column already carries a
+    // plain exact-match UNIQUE("email") constraint, so grouping by it can
+    // never find a duplicate and the guard would be dead code. Grouping by
+    // lower(email) actually re-checks the invariant CREATE UNIQUE INDEX below
+    // is about to enforce. If this finds rows, something about the data shape
+    // was not anticipated (for example a loser's rename target collided with
+    // an unrelated pre-existing row and silently lost the rename, which can't
+    // actually happen because that UPDATE would itself fail on the exact
+    // UNIQUE constraint — this is a defence-in-depth check) — fail the
     // migration loudly (with the offending emails) rather than let the next
     // statement fail with an opaque unique-violation, or worse, leave the
     // table in a half-migrated state.
     const remaining: { email: string; ids: string }[] =
       await queryRunner.query(`
-        SELECT email, array_agg(id) AS ids FROM "user_account"
-        GROUP BY email HAVING count(*) > 1
+        SELECT lower(email) AS email, array_agg(id) AS ids FROM "user_account"
+        GROUP BY lower(email) HAVING count(*) > 1
       `);
     if (remaining.length > 0) {
       throw new Error(
