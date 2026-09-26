@@ -61,6 +61,16 @@ export class AiAssistantController {
     return this.aiAssistantService.getSessionMessages(sessionId, user);
   }
 
+  // Scoped to the caller: another user's session id is a 404, exactly like an
+  // unknown one, so the endpoint cannot be used to probe for session ids.
+  @Delete('sessions/:sessionId')
+  deleteSession(
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.aiAssistantService.deleteSession(sessionId, user);
+  }
+
   @Put('webhook-key')
   upsertWebhookKey(
     @Body() dto: UpsertWebhookKeyDto,

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -34,6 +35,12 @@ import {
 } from './gemini-client.service';
 import { WebhookQueueService } from './webhook-queue.service';
 
+/** Session topic for a new chat whose first message carries no text. */
+export const ATTACHMENT_ONLY_TOPIC = 'Attached items';
+
+const describeAttachments = (count: number) =>
+  `Attached ${count} ${count === 1 ? 'item' : 'items'}`;
+
 @Injectable()
 export class ConversationService {
   constructor(
@@ -52,11 +59,24 @@ export class ConversationService {
   ) {}
 
   async handleChat(accountId: number, dto: ChatRequestDto) {
+    // QA-34: a message may be only attached items (or reference images) with
+    // no text. Text-less *and* attachment-less stays rejected - there is
+    // nothing to answer. Checked before any row is written.
+    const attachmentCount =
+      (dto.contextItemIds?.length ?? 0) + (dto.referenceImageKeys?.length ?? 0);
+    const hasText = dto.prompt.trim().length > 0;
+    if (!hasText && attachmentCount === 0) {
+      throw new BadRequestException(
+        'prompt must not be empty unless items are attached',
+      );
+    }
+
     const accountPreview = await this.getAccountPreview(accountId);
     const session = await this.resolveSession(
       accountId,
       dto.sessionId,
-      dto.topic ?? this.deriveTopic(dto.prompt),
+      dto.topic ??
+        (hasText ? this.deriveTopic(dto.prompt) : ATTACHMENT_ONLY_TOPIC),
     );
 
     const [referenceImageUrls, history, seedSummary, calendarConnected] =
@@ -70,10 +90,14 @@ export class ConversationService {
     const referenceImages =
       await this.contextBuilder.fetchReferenceImageParts(referenceImageUrls);
 
+    // An attachment-only turn is persisted with a readable stand-in rather
+    // than "": the transcript would otherwise show an empty bubble, and the
+    // row is replayed as history text on later turns, where an empty text
+    // part carries no meaning for the model.
     await this.messageRepository.save({
       sessionId: session.id,
       role: 'user',
-      content: dto.prompt,
+      content: hasText ? dto.prompt : describeAttachments(attachmentCount),
       attachments: referenceImageUrls,
     });
 
@@ -274,6 +298,29 @@ export class ConversationService {
 
     return plainToInstance(AssistantMessageDto, messages, {
       excludeExtraneousValues: true,
+    });
+  }
+
+  /**
+   * QA-35: deletes one of the caller's sessions. Ownership is checked first
+   * and the delete itself is filtered by `accountId` too, so another user's
+   * session id is a 404 and deletes nothing. Messages are deleted explicitly
+   * in the same transaction rather than left to the `session_id` FK's ON
+   * DELETE CASCADE, so the behaviour does not hinge on the constraint having
+   * been created with CASCADE on every database. The session's outfit
+   * suggestions are removed by the schema's own cascades (`session_id` and
+   * `message_id` are both NOT NULL/ON DELETE CASCADE references) - keeping
+   * them would need a schema change outside this service.
+   */
+  async deleteSession(accountId: number, sessionId: string): Promise<void> {
+    await this.ensureSessionOwnership(accountId, sessionId);
+
+    await this.sessionRepository.manager.transaction(async (manager) => {
+      await manager.delete(AssistantMessageEntity, { sessionId });
+      await manager.delete(AssistantSessionEntity, {
+        id: sessionId,
+        accountId,
+      });
     });
   }
 

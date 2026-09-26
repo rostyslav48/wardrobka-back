@@ -3,6 +3,7 @@ export const AI_ASSISTANT_REQUESTS = {
   enqueueOutfitSuggestion: 'ai-assistant/outfit',
   getSessions: 'ai-assistant/get-sessions',
   getSessionMessages: 'ai-assistant/get-session-messages',
+  deleteSession: 'ai-assistant/delete-session',
   upsertWebhookKey: 'ai-assistant/upsert-webhook-key',
   getRecentSuggestions: 'ai-assistant/get-recent-suggestions',
   getOutfitSuggestions: 'ai-assistant/get-outfit-suggestions',

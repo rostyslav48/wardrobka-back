@@ -85,6 +85,17 @@ const SYSTEM_INSTRUCTION = [
   'Keep responses concise and practical.',
 ].join('\n');
 
+/**
+ * QA-34: stands in for "User request: <prompt>" when the user sent attached
+ * items or images with no text. Without it the model saw an empty request and
+ * either errored or answered a question nobody asked.
+ */
+export const ATTACHMENT_ONLY_INSTRUCTION =
+  'The user sent attached items or images without any text, so there is no question to answer yet. ' +
+  'Look at them first (get_item_details for attached item ids; attached images are part of this turn). Then either comment briefly and usefully on them ' +
+  '(for example what they pair well with from the wardrobe), or ask what they would like to know about them. ' +
+  'Do not invent a question or request the user did not make.';
+
 const BUDGET_EXHAUSTED_NOTE =
   'The tool budget for this message is spent. Answer the user now using only what you have already gathered, and say plainly if something could not be checked.';
 
@@ -368,8 +379,9 @@ export class GeminiClientService {
       contextItemIds?.length
         ? `The user attached these wardrobe item ids to this message: ${contextItemIds.join(', ')}. Use get_item_details if you need them.`
         : null,
-      'User request:',
-      prompt,
+      ...(prompt.trim()
+        ? ['User request:', prompt]
+        : [ATTACHMENT_ONLY_INSTRUCTION]),
       additionalInstruction ?? null,
     ]
       .filter(Boolean)
