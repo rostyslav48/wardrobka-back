@@ -30,7 +30,9 @@ test.describe('auth', () => {
   ];
 
   for (const [path, method] of routes) {
-    test(`${method.toUpperCase()} ${path} requires a token`, async ({ request }) => {
+    test(`${method.toUpperCase()} ${path} requires a token`, async ({
+      request,
+    }) => {
       const res = await (request as any)[method](path, { data: {} });
       expect(res.status()).toBe(401);
     });
@@ -39,12 +41,16 @@ test.describe('auth', () => {
 
 test.describe('GET /ai-assistant/sessions', () => {
   test('returns a list for a fresh account', async ({ request }) => {
-    const res = await request.get('/ai-assistant/sessions', { headers: auth(user) });
+    const res = await request.get('/ai-assistant/sessions', {
+      headers: auth(user),
+    });
     expect(res.status(), await res.text()).toBe(200);
     expect(Array.isArray(await res.json())).toBe(true);
   });
 
-  test('messages of an unknown session are not readable', async ({ request }) => {
+  test('messages of an unknown session are not readable', async ({
+    request,
+  }) => {
     const res = await request.get(
       '/ai-assistant/sessions/00000000-0000-4000-8000-000000000000/messages',
       { headers: auth(user) },
@@ -52,7 +58,6 @@ test.describe('GET /ai-assistant/sessions', () => {
     expect([200, 403, 404]).toContain(res.status());
     if (res.status() === 200) expect(await res.json()).toEqual([]);
   });
-
 });
 
 /**
@@ -64,7 +69,16 @@ test.describe('GET /ai-assistant/sessions', () => {
 function dbClient(): Client {
   const env = dotenv.parse(
     fs.readFileSync(
-      path.join(__dirname, '..', '..', 'libs', 'common', 'src', 'database', '.env'),
+      path.join(
+        __dirname,
+        '..',
+        '..',
+        'libs',
+        'common',
+        'src',
+        'database',
+        '.env',
+      ),
     ),
   );
   const pick = (key: string) => process.env[key] ?? env[key];
@@ -145,7 +159,10 @@ test.describe('DELETE /ai-assistant/sessions/:sessionId', () => {
       headers: auth(stranger),
     });
     expect(res.status(), await res.text()).toBe(404);
-    expect(await countRows(db, sessionId)).toEqual({ sessions: 1, messages: 2 });
+    expect(await countRows(db, sessionId)).toEqual({
+      sessions: 1,
+      messages: 2,
+    });
 
     // The owner still reads it.
     const messages = await request.get(
@@ -156,7 +173,9 @@ test.describe('DELETE /ai-assistant/sessions/:sessionId', () => {
     expect(await messages.json()).toHaveLength(2);
   });
 
-  test('the owner deletes the session and its messages', async ({ request }) => {
+  test('the owner deletes the session and its messages', async ({
+    request,
+  }) => {
     const { sessionId } = await seedSession(db, user);
     const other = await seedSession(db, user);
 
@@ -166,7 +185,10 @@ test.describe('DELETE /ai-assistant/sessions/:sessionId', () => {
     expect(res.status(), await res.text()).toBe(200);
     expect(await res.json()).toEqual({ deleted: true });
 
-    expect(await countRows(db, sessionId)).toEqual({ sessions: 0, messages: 0 });
+    expect(await countRows(db, sessionId)).toEqual({
+      sessions: 0,
+      messages: 0,
+    });
     // Only that session: the owner's other session is untouched.
     expect(await countRows(db, other.sessionId)).toEqual({
       sessions: 1,
@@ -202,9 +224,12 @@ test.describe('GET /ai-assistant/outfit-suggestions', () => {
   });
 
   test('rejects a non-numeric limit', async ({ request }) => {
-    const res = await request.get('/ai-assistant/outfit-suggestions?limit=abc', {
-      headers: auth(user),
-    });
+    const res = await request.get(
+      '/ai-assistant/outfit-suggestions?limit=abc',
+      {
+        headers: auth(user),
+      },
+    );
     expect(res.status()).toBe(400);
   });
 
@@ -234,10 +259,15 @@ test.describe('GET /ai-assistant/suggestions/recent', () => {
     expect(res.status(), await res.text()).toBe(200);
   });
 
-  test('the limit query parameter is validated as an integer', async ({ request }) => {
-    const res = await request.get('/ai-assistant/suggestions/recent?limit=abc', {
-      headers: auth(user),
-    });
+  test('the limit query parameter is validated as an integer', async ({
+    request,
+  }) => {
+    const res = await request.get(
+      '/ai-assistant/suggestions/recent?limit=abc',
+      {
+        headers: auth(user),
+      },
+    );
     expect(
       res.status(),
       'RecentSuggestionsQuery declares @IsInt() on limit',
@@ -288,7 +318,6 @@ test.describe('POST /ai-assistant/chat validation', () => {
     ).json();
     expect(after).toHaveLength(before.length);
   });
-
 });
 
 test.describe('POST /ai-assistant/outfit validation', () => {
@@ -325,7 +354,9 @@ test.describe('live model', () => {
     'set E2E_RUN_AI_CALLS=1 to spend real Gemini quota',
   );
 
-  test('a chat turn creates a session and an assistant reply', async ({ request }) => {
+  test('a chat turn creates a session and an assistant reply', async ({
+    request,
+  }) => {
     test.setTimeout(120_000);
     const res = await request.post('/ai-assistant/chat', {
       headers: auth(user),
@@ -355,12 +386,16 @@ test.describe('live model', () => {
   // ~(1/3)^3 ≈ 3.7%, down from ~33% for a single call.
   test('a clothing photo is reported as clothing', async ({ request }) => {
     test.setTimeout(180_000);
-    const buffer = fs.readFileSync(path.join(__dirname, 'fixtures', 'shirt.png'));
+    const buffer = fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'shirt.png'),
+    );
     const results: boolean[] = [];
     for (let i = 0; i < 3; i++) {
       const res = await request.post('/wardrobe/analyze-image', {
         headers: auth(user),
-        multipart: { image: { name: 'shirt.png', mimeType: 'image/png', buffer } },
+        multipart: {
+          image: { name: 'shirt.png', mimeType: 'image/png', buffer },
+        },
       });
       expect(res.status(), await res.text()).toBe(201);
       const body = await res.json();

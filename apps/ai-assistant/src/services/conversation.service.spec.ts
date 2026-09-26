@@ -652,7 +652,9 @@ describe('ConversationService — deleteSession (QA-35)', () => {
     // session is indistinguishable from a missing one.
     sessionRepo.findOneBy.mockImplementation(({ accountId: owner }) =>
       Promise.resolve(
-        owner === otherAccountId ? makeSession(sessionId, otherAccountId) : null,
+        owner === otherAccountId
+          ? makeSession(sessionId, otherAccountId)
+          : null,
       ),
     );
 
