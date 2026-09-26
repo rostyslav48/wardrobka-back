@@ -308,9 +308,10 @@ export class ConversationService {
    * in the same transaction rather than left to the `session_id` FK's ON
    * DELETE CASCADE, so the behaviour does not hinge on the constraint having
    * been created with CASCADE on every database. The session's outfit
-   * suggestions are removed by the schema's own cascades (`session_id` and
-   * `message_id` are both NOT NULL/ON DELETE CASCADE references) - keeping
-   * them would need a schema change outside this service.
+   * suggestions are removed by the schema's own cascades: `session_id` is a
+   * NOT NULL, ON DELETE CASCADE reference, and the nullable `message_id` is
+   * ON DELETE CASCADE too - keeping them would need a schema change outside
+   * this service.
    */
   async deleteSession(accountId: number, sessionId: string): Promise<void> {
     await this.ensureSessionOwnership(accountId, sessionId);
