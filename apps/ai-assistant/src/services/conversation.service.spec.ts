@@ -5,15 +5,23 @@ jest.mock('@app/common', () => ({
   MicroserviceExceptionFilter: jest.fn(),
 }));
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { SelectQueryBuilder } from 'typeorm';
 
 import {
+  AssistantMessageEntity,
   AssistantOutfitSuggestionEntity,
   AssistantSessionEntity,
 } from '@app/common/database/entities/assistant';
 
-import { ConversationService } from './conversation.service';
+import {
+  ATTACHMENT_ONLY_TOPIC,
+  ConversationService,
+} from './conversation.service';
 
 const makeSession = (
   id: string,
@@ -497,6 +505,172 @@ describe('ConversationService — handleChat history replay', () => {
       }),
     );
     expect(result.outfitSuggestionId).toBe('suggestion-1');
+  });
+
+  describe('QA-34: attachment-only messages', () => {
+    it('accepts an empty prompt when items are attached and hands the model the empty prompt plus the item ids', async () => {
+      await service.handleChat(accountId, {
+        prompt: '',
+        sessionId,
+        contextItemIds: [4, 5],
+      } as any);
+
+      expect(geminiClient.generateChatResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: '', contextItemIds: [4, 5] }),
+      );
+    });
+
+    it('persists a readable stand-in instead of an empty user message', async () => {
+      await service.handleChat(accountId, {
+        prompt: '   ',
+        sessionId,
+        contextItemIds: [4, 5],
+      } as any);
+
+      expect(messageRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'user', content: 'Attached 2 items' }),
+      );
+    });
+
+    it('uses the singular for one attached item', async () => {
+      await service.handleChat(accountId, {
+        prompt: '',
+        sessionId,
+        contextItemIds: [4],
+      } as any);
+
+      expect(messageRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'user', content: 'Attached 1 item' }),
+      );
+    });
+
+    it('gives a new attachment-only session a fixed topic instead of an empty one', async () => {
+      sessionRepo.create.mockImplementation((entity) => entity);
+      sessionRepo.save.mockImplementation((entity) =>
+        Promise.resolve({ id: 'new-session', ...entity }),
+      );
+
+      await service.handleChat(accountId, {
+        prompt: '',
+        contextItemIds: [4],
+      } as any);
+
+      expect(sessionRepo.create).toHaveBeenCalledWith({
+        accountId,
+        topic: ATTACHMENT_ONLY_TOPIC,
+      });
+    });
+
+    it('rejects a whitespace-only prompt with nothing attached, before writing anything or calling the model', async () => {
+      await expect(
+        service.handleChat(accountId, { prompt: '  \n ', sessionId } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(messageRepo.save).not.toHaveBeenCalled();
+      expect(sessionRepo.save).not.toHaveBeenCalled();
+      expect(geminiClient.generateChatResponse).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty prompt with an empty attachment list', async () => {
+      await expect(
+        service.handleChat(accountId, {
+          prompt: '',
+          sessionId,
+          contextItemIds: [],
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+});
+
+describe('ConversationService — deleteSession (QA-35)', () => {
+  const accountId = 1;
+  const otherAccountId = 2;
+  const sessionId = '11111111-1111-4111-8111-111111111111';
+
+  let txManager: { delete: jest.Mock };
+  let sessionRepo: {
+    findOneBy: jest.Mock;
+    manager: { transaction: jest.Mock };
+  };
+  let service: ConversationService;
+
+  beforeEach(() => {
+    txManager = { delete: jest.fn().mockResolvedValue({ affected: 1 }) };
+    sessionRepo = {
+      findOneBy: jest.fn(),
+      manager: {
+        transaction: jest.fn((work: (m: typeof txManager) => unknown) =>
+          work(txManager),
+        ),
+      },
+    };
+    service = new ConversationService(
+      sessionRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it("deletes the caller's session and its messages in one transaction", async () => {
+    sessionRepo.findOneBy.mockResolvedValue(makeSession(sessionId, accountId));
+
+    await service.deleteSession(accountId, sessionId);
+
+    expect(sessionRepo.findOneBy).toHaveBeenCalledWith({
+      id: sessionId,
+      accountId,
+    });
+    expect(sessionRepo.manager.transaction).toHaveBeenCalledTimes(1);
+    expect(txManager.delete).toHaveBeenCalledWith(AssistantMessageEntity, {
+      sessionId,
+    });
+    expect(txManager.delete).toHaveBeenCalledWith(AssistantSessionEntity, {
+      id: sessionId,
+      accountId,
+    });
+  });
+
+  it('deletes the messages before the session', async () => {
+    sessionRepo.findOneBy.mockResolvedValue(makeSession(sessionId, accountId));
+
+    await service.deleteSession(accountId, sessionId);
+
+    expect(txManager.delete.mock.calls.map(([entity]) => entity)).toEqual([
+      AssistantMessageEntity,
+      AssistantSessionEntity,
+    ]);
+  });
+
+  it("returns 404 for another user's session and deletes nothing", async () => {
+    // The ownership lookup is filtered by accountId, so another user's
+    // session is indistinguishable from a missing one.
+    sessionRepo.findOneBy.mockImplementation(({ accountId: owner }) =>
+      Promise.resolve(
+        owner === otherAccountId ? makeSession(sessionId, otherAccountId) : null,
+      ),
+    );
+
+    await expect(
+      service.deleteSession(accountId, sessionId),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(sessionRepo.manager.transaction).not.toHaveBeenCalled();
+    expect(txManager.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for an unknown session id', async () => {
+    sessionRepo.findOneBy.mockResolvedValue(null);
+
+    await expect(
+      service.deleteSession(accountId, sessionId),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(txManager.delete).not.toHaveBeenCalled();
   });
 });
 

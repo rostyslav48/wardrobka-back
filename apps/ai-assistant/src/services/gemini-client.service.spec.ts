@@ -13,7 +13,10 @@ jest.mock('@google/genai', () => ({
   })),
 }));
 
-import { GeminiClientService } from './gemini-client.service';
+import {
+  ATTACHMENT_ONLY_INSTRUCTION,
+  GeminiClientService,
+} from './gemini-client.service';
 
 describe('GeminiClientService', () => {
   const configValues: Record<string, unknown> = {
@@ -686,5 +689,38 @@ describe('GeminiClientService', () => {
     expect(currentTurn.parts[0].text).toContain(
       'call propose_outfit with the final summary',
     );
+  });
+
+  it('QA-34: an attachment-only turn asks the model to comment or clarify instead of sending an empty request', async () => {
+    await service.generateChatResponse({
+      prompt: '',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      contextItemIds: [7, 9],
+      executeTool,
+    });
+
+    const call = generateContentMock.mock.calls[0][0];
+    const text: string = call.contents.at(-1).parts[0].text;
+    expect(text).toContain(ATTACHMENT_ONLY_INSTRUCTION);
+    expect(text).toContain('7, 9');
+    expect(text).not.toContain('User request:');
+  });
+
+  it('QA-34: a turn with text keeps the plain "User request" framing and no attachment-only instruction', async () => {
+    await service.generateChatResponse({
+      prompt: 'does this go with jeans?',
+      history: [],
+      referenceImages: [],
+      seedSummary: 'Wardrobe summary (orientation only)',
+      contextItemIds: [7],
+      executeTool,
+    });
+
+    const text: string =
+      generateContentMock.mock.calls[0][0].contents.at(-1).parts[0].text;
+    expect(text).toContain('User request:\n\ndoes this go with jeans?');
+    expect(text).not.toContain(ATTACHMENT_ONLY_INSTRUCTION);
   });
 });

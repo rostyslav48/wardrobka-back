@@ -120,6 +120,17 @@ export class AiAssistantController {
     return messages;
   }
 
+  @MessagePattern(AI_ASSISTANT_REQUESTS.deleteSession)
+  async deleteSession(
+    @Ctx() context: RmqContext,
+    @Body() { user, data }: RequestType<{ sessionId: string }>,
+  ) {
+    await this.conversationService.deleteSession(user.id, data.sessionId);
+    this.rmqService.ack(context);
+
+    return { deleted: true };
+  }
+
   @MessagePattern(AI_ASSISTANT_REQUESTS.upsertWebhookKey)
   async upsertWebhookKey(
     @Ctx() context: RmqContext,
