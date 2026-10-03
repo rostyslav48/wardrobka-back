@@ -50,6 +50,28 @@ This builds each service (using their respective `DockerFile`) and boots up Post
 
 Services map local directories to `/usr/src/app` inside the container for hot-reloading (`npm run start:dev [service]`).
 
+### Updating dependencies (`Module not found` after pulling new packages)
+Each service mounts the repository at `/usr/src/app` and layers an anonymous volume over `/usr/src/app/node_modules`, so containers use the `npm install` performed at image build time rather than the host's `node_modules`. Docker seeds an anonymous volume **only when it first creates it** and reuses it on every later `up` — including after `--build`. A rebuilt image therefore keeps serving the dependency set the volume was created with, and any package added since then fails to resolve:
+
+```
+ERROR in ./apps/wardrobe/src/wardrobe.module.ts
+Module not found: Error: Can't resolve '@nestjs/schedule'
+```
+
+Whenever `package.json` changes, rebuild with the anonymous volumes renewed:
+```bash
+docker compose up -d --build --force-recreate --renew-anon-volumes
+```
+`--renew-anon-volumes` (`-V`) discards those volumes and re-seeds them from the freshly built image. Named volumes are left untouched, so `postgres_data` — and the database inside it — survives.
+
+Do **not** reach for `docker compose down -v` here: that flag removes named volumes too, and will drop the database.
+
+Recreating containers orphans the previous anonymous volumes instead of reusing them, so they accumulate and can eventually exhaust the disk — a build dying with `no space left on device` part-way through a layer is the usual symptom. Reclaim them periodically (`docker system df` shows how much is recoverable):
+```bash
+docker volume prune -f
+docker builder prune -af
+```
+
 ## 💅 Code Style & Conventions
 **Formatting and Linting**
 The repository uses **ESLint** and **Prettier** to enforce formatting rules across the codebase:

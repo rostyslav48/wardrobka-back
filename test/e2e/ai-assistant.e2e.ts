@@ -1,3 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+import { Client } from 'pg';
 import { test, expect } from '@playwright/test';
 import { takeUser, auth, TestUser } from './support/api';
 
@@ -22,10 +26,13 @@ test.describe('auth', () => {
     ['/ai-assistant/chat', 'post'],
     ['/ai-assistant/outfit', 'post'],
     ['/ai-assistant/webhook-key', 'put'],
+    ['/ai-assistant/sessions/00000000-0000-4000-8000-000000000000', 'delete'],
   ];
 
   for (const [path, method] of routes) {
-    test(`${method.toUpperCase()} ${path} requires a token`, async ({ request }) => {
+    test(`${method.toUpperCase()} ${path} requires a token`, async ({
+      request,
+    }) => {
       const res = await (request as any)[method](path, { data: {} });
       expect(res.status()).toBe(401);
     });
@@ -34,12 +41,16 @@ test.describe('auth', () => {
 
 test.describe('GET /ai-assistant/sessions', () => {
   test('returns a list for a fresh account', async ({ request }) => {
-    const res = await request.get('/ai-assistant/sessions', { headers: auth(user) });
+    const res = await request.get('/ai-assistant/sessions', {
+      headers: auth(user),
+    });
     expect(res.status(), await res.text()).toBe(200);
     expect(Array.isArray(await res.json())).toBe(true);
   });
 
-  test('messages of an unknown session are not readable', async ({ request }) => {
+  test('messages of an unknown session are not readable', async ({
+    request,
+  }) => {
     const res = await request.get(
       '/ai-assistant/sessions/00000000-0000-4000-8000-000000000000/messages',
       { headers: auth(user) },
@@ -47,7 +58,161 @@ test.describe('GET /ai-assistant/sessions', () => {
     expect([200, 403, 404]).toContain(res.status());
     if (res.status() === 200) expect(await res.json()).toEqual([]);
   });
+});
 
+/**
+ * A chat session can only be created through POST /ai-assistant/chat, which
+ * calls Gemini synchronously. The delete cases seed their session straight
+ * into the lane's Postgres instead (same connection settings the Nest apps
+ * read), so they cost no model quota and do not depend on the model at all.
+ */
+function dbClient(): Client {
+  const env = dotenv.parse(
+    fs.readFileSync(
+      path.join(
+        __dirname,
+        '..',
+        '..',
+        'libs',
+        'common',
+        'src',
+        'database',
+        '.env',
+      ),
+    ),
+  );
+  const pick = (key: string) => process.env[key] ?? env[key];
+  return new Client({
+    host: pick('POSTGRES_HOST') ?? 'localhost',
+    port: Number(pick('POSTGRES_PORT')),
+    user: pick('POSTGRES_USER'),
+    password: pick('POSTGRES_PASSWORD'),
+    database: pick('POSTGRES_DATABASE'),
+  });
+}
+
+async function seedSession(db: Client, owner: TestUser) {
+  const session = await db.query(
+    `INSERT INTO assistant_session (account_id, topic) VALUES ($1, 'e2e delete') RETURNING id`,
+    [owner.id],
+  );
+  const sessionId: string = session.rows[0].id;
+  const user = await db.query(
+    `INSERT INTO assistant_message (session_id, role, content) VALUES ($1, 'user', 'hi') RETURNING id`,
+    [sessionId],
+  );
+  const reply = await db.query(
+    `INSERT INTO assistant_message (session_id, role, content) VALUES ($1, 'assistant', 'hello') RETURNING id`,
+    [sessionId],
+  );
+  return {
+    sessionId,
+    messageIds: [user.rows[0].id as string, reply.rows[0].id as string],
+  };
+}
+
+async function countRows(db: Client, sessionId: string) {
+  const sessions = await db.query(
+    'SELECT count(*)::int AS n FROM assistant_session WHERE id = $1',
+    [sessionId],
+  );
+  const messages = await db.query(
+    'SELECT count(*)::int AS n FROM assistant_message WHERE session_id = $1',
+    [sessionId],
+  );
+  return { sessions: sessions.rows[0].n, messages: messages.rows[0].n };
+}
+
+test.describe('DELETE /ai-assistant/sessions/:sessionId', () => {
+  let db: Client;
+
+  test.beforeAll(async () => {
+    db = dbClient();
+    await db.connect();
+  });
+
+  test.afterAll(async () => {
+    await db.end();
+  });
+
+  test('rejects a non-UUID session id', async ({ request }) => {
+    const res = await request.delete('/ai-assistant/sessions/not-a-uuid', {
+      headers: auth(user),
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('an unknown session id is a 404', async ({ request }) => {
+    const res = await request.delete(
+      '/ai-assistant/sessions/00000000-0000-4000-8000-000000000000',
+      { headers: auth(user) },
+    );
+    expect(res.status(), await res.text()).toBe(404);
+  });
+
+  test("another user's session is a 404 and nothing is deleted", async ({
+    request,
+  }) => {
+    const { sessionId } = await seedSession(db, user);
+
+    const res = await request.delete(`/ai-assistant/sessions/${sessionId}`, {
+      headers: auth(stranger),
+    });
+    expect(res.status(), await res.text()).toBe(404);
+    expect(await countRows(db, sessionId)).toEqual({
+      sessions: 1,
+      messages: 2,
+    });
+
+    // The owner still reads it.
+    const messages = await request.get(
+      `/ai-assistant/sessions/${sessionId}/messages`,
+      { headers: auth(user) },
+    );
+    expect(messages.status()).toBe(200);
+    expect(await messages.json()).toHaveLength(2);
+  });
+
+  test('the owner deletes the session and its messages', async ({
+    request,
+  }) => {
+    const { sessionId } = await seedSession(db, user);
+    const other = await seedSession(db, user);
+
+    const res = await request.delete(`/ai-assistant/sessions/${sessionId}`, {
+      headers: auth(user),
+    });
+    expect(res.status(), await res.text()).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true });
+
+    expect(await countRows(db, sessionId)).toEqual({
+      sessions: 0,
+      messages: 0,
+    });
+    // Only that session: the owner's other session is untouched.
+    expect(await countRows(db, other.sessionId)).toEqual({
+      sessions: 1,
+      messages: 2,
+    });
+
+    const list = await (
+      await request.get('/ai-assistant/sessions', { headers: auth(user) })
+    ).json();
+    const ids = list.map((s: { id: string }) => s.id);
+    expect(ids).not.toContain(sessionId);
+    expect(ids).toContain(other.sessionId);
+
+    const messages = await request.get(
+      `/ai-assistant/sessions/${sessionId}/messages`,
+      { headers: auth(user) },
+    );
+    expect(messages.status()).toBe(404);
+
+    const again = await request.delete(`/ai-assistant/sessions/${sessionId}`, {
+      headers: auth(user),
+    });
+    expect(again.status()).toBe(404);
+  });
 });
 
 test.describe('GET /ai-assistant/outfit-suggestions', () => {
@@ -59,9 +224,12 @@ test.describe('GET /ai-assistant/outfit-suggestions', () => {
   });
 
   test('rejects a non-numeric limit', async ({ request }) => {
-    const res = await request.get('/ai-assistant/outfit-suggestions?limit=abc', {
-      headers: auth(user),
-    });
+    const res = await request.get(
+      '/ai-assistant/outfit-suggestions?limit=abc',
+      {
+        headers: auth(user),
+      },
+    );
     expect(res.status()).toBe(400);
   });
 
@@ -91,10 +259,15 @@ test.describe('GET /ai-assistant/suggestions/recent', () => {
     expect(res.status(), await res.text()).toBe(200);
   });
 
-  test('the limit query parameter is validated as an integer', async ({ request }) => {
-    const res = await request.get('/ai-assistant/suggestions/recent?limit=abc', {
-      headers: auth(user),
-    });
+  test('the limit query parameter is validated as an integer', async ({
+    request,
+  }) => {
+    const res = await request.get(
+      '/ai-assistant/suggestions/recent?limit=abc',
+      {
+        headers: auth(user),
+      },
+    );
     expect(
       res.status(),
       'RecentSuggestionsQuery declares @IsInt() on limit',
@@ -127,6 +300,24 @@ test.describe('POST /ai-assistant/chat validation', () => {
     expect(res.status()).toBe(400);
   });
 
+  // QA-34: text-less messages are only valid with an attachment. Rejected
+  // before any session row is written or the model is called.
+  test('rejects a whitespace-only prompt with nothing attached', async ({
+    request,
+  }) => {
+    const before = await (
+      await request.get('/ai-assistant/sessions', { headers: auth(user) })
+    ).json();
+    const res = await request.post('/ai-assistant/chat', {
+      headers: auth(user),
+      data: { prompt: '   ' },
+    });
+    expect(res.status(), await res.text()).toBe(400);
+    const after = await (
+      await request.get('/ai-assistant/sessions', { headers: auth(user) })
+    ).json();
+    expect(after).toHaveLength(before.length);
+  });
 });
 
 test.describe('POST /ai-assistant/outfit validation', () => {
@@ -163,7 +354,9 @@ test.describe('live model', () => {
     'set E2E_RUN_AI_CALLS=1 to spend real Gemini quota',
   );
 
-  test('a chat turn creates a session and an assistant reply', async ({ request }) => {
+  test('a chat turn creates a session and an assistant reply', async ({
+    request,
+  }) => {
     test.setTimeout(120_000);
     const res = await request.post('/ai-assistant/chat', {
       headers: auth(user),
@@ -175,5 +368,70 @@ test.describe('live model', () => {
       await request.get('/ai-assistant/sessions', { headers: auth(user) })
     ).json();
     expect(sessions.length).toBeGreaterThan(0);
+  });
+
+  // QA-43: a photo of a leaf used to get auto-filled as a Hoodie with no
+  // warning. Fixtures are synthetic silhouettes (see fixtures/generate-fixtures.js)
+  // but this is a real POST /wardrobe/analyze-image call through the gateway to
+  // the ai-assistant microservice to a live Gemini model — no mocking.
+  //
+  // The shirt fixture is a flat, low-detail synthetic silhouette, a weak visual
+  // stimulus: live sampling (9 single-shot calls, see planning/.agent-loop/log.md)
+  // showed the model reports it as clothing only ~2/3 of the time and reports it
+  // as non-clothing (with placeholder attributes) the rest — a single-shot
+  // assertion is flaky by construction, not a product defect. This asserts that a
+  // live call is CAPABLE of recognising the fixture, not that every call does:
+  // 3 independent live calls, pass if at least one reports is_clothing === true.
+  // At an observed per-call true-rate of ~2/3, the chance all 3 calls miss is
+  // ~(1/3)^3 ≈ 3.7%, down from ~33% for a single call.
+  test('a clothing photo is reported as clothing', async ({ request }) => {
+    test.setTimeout(180_000);
+    const buffer = fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'shirt.png'),
+    );
+    const results: boolean[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await request.post('/wardrobe/analyze-image', {
+        headers: auth(user),
+        multipart: {
+          image: { name: 'shirt.png', mimeType: 'image/png', buffer },
+        },
+      });
+      expect(res.status(), await res.text()).toBe(201);
+      const body = await res.json();
+      results.push(body.is_clothing === true);
+    }
+    expect(
+      results.some(Boolean),
+      `analyzer never reported this clothing photo as clothing across ${results.length} live calls`,
+    ).toBe(true);
+
+    // ANALYZE_IMAGE_THROTTLE (apps/wardrobe-api-gateway/src/wardrobe/constants.ts)
+    // allows 3 calls per 10s per IP+route, and the loop above just spent the
+    // whole budget. Wait out the window so the next test's own call gets a
+    // real model answer instead of our own 429.
+    await new Promise((resolve) => setTimeout(resolve, 10_500));
+  });
+
+  test('a non-clothing photo is reported as such instead of being auto-filled', async ({
+    request,
+  }) => {
+    test.setTimeout(60_000);
+    const res = await request.post('/wardrobe/analyze-image', {
+      headers: auth(user),
+      multipart: {
+        image: {
+          name: 'leaf.png',
+          mimeType: 'image/png',
+          buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'leaf.png')),
+        },
+      },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const body = await res.json();
+    expect(
+      body.is_clothing,
+      `analyzer treated an obviously non-clothing photo as clothing: ${JSON.stringify(body)}`,
+    ).toBe(false);
   });
 });

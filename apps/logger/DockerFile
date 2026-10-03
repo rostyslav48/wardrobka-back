@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+FROM node:20-alpine AS base
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+FROM base AS development
+CMD ["npm", "run", "start:dev", "logger"]
+
+FROM base AS production
+RUN npm run build logger
+CMD ["node", "dist/apps/logger/main.js"]

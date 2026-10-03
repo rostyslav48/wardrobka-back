@@ -35,4 +35,10 @@ export class MediaStorageService {
       this.clientProxy.send(MEDIA_STORAGE_REQUESTS.delete, { filePath }),
     );
   }
+
+  public exists(filePath: string): Promise<boolean> {
+    return lastValueFrom(
+      this.clientProxy.send(MEDIA_STORAGE_REQUESTS.exists, { filePath }),
+    );
+  }
 }

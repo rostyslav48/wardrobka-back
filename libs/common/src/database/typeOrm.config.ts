@@ -14,6 +14,8 @@ import {
   AssistantSessionEntity,
   AssistantWebhookJobEntity,
 } from './entities/assistant';
+import { ErrorLogEntity } from './entities/logger';
+import { GoogleCalendarCredentialEntity } from './entities/calendar';
 
 config({ path: './libs/common/src/database/.env' });
 
@@ -28,6 +30,8 @@ export const databaseEntities = [
   AssistantMessageEntity,
   AssistantOutfitSuggestionEntity,
   AssistantWebhookJobEntity,
+  ErrorLogEntity,
+  GoogleCalendarCredentialEntity,
 ];
 
 export const AppDataSource = new DataSource({

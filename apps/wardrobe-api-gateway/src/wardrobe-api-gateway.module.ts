@@ -1,13 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_FILTER } from '@nestjs/core';
 import * as Joi from 'joi';
 
 import { ConfiguredJwtModule } from '@app/common/jwt/configured-jwt.module';
+import { ErrorLoggerModule } from '@app/logger';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { AuthModule } from './auth/auth.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { OutfitLogModule } from './outfit-log/outfit-log.module';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 
 @Module({
   imports: [
@@ -15,6 +18,10 @@ import { OutfitLogModule } from './outfit-log/outfit-log.module';
       isGlobal: true,
       validationSchema: Joi.object({
         PORT: Joi.number().required(),
+        RABBIT_MQ_LOGGER_QUEUE: Joi.string().required(),
+        ERROR_LOG_MIN_SEVERITY: Joi.string()
+          .valid('warn', 'error', 'fatal')
+          .optional(),
       }),
       envFilePath: [
         './apps/wardrobe-api-gateway/.env',
@@ -32,11 +39,18 @@ import { OutfitLogModule } from './outfit-log/outfit-log.module';
       throttlers: [{ name: 'default', ttl: 60000, limit: 30 }],
     }),
     ConfiguredJwtModule,
+    ErrorLoggerModule.register({ serviceName: 'wardrobe-api-gateway' }),
     WardrobeModule,
     AuthModule,
     AiAssistantModule,
     OutfitLogModule,
   ],
   controllers: [],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+  ],
 })
 export class WardrobeApiGatewayModule {}

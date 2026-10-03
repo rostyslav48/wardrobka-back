@@ -27,6 +27,12 @@
       "@app/ai-assistant/*": [
         "libs/ai-assistant/src/*"
       ],
+      "@app/logger": [
+        "libs/logger/src"
+      ],
+      "@app/logger/*": [
+        "libs/logger/src/*"
+      ],
       "@app/wardrobe-api-gateway/*": [
         "apps/wardrobe-api-gateway/src/*"
       ],

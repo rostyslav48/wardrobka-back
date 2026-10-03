@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { WardrobeApiGatewayModule } from './wardrobe-api-gateway.module';
 
 import { AuthGuard } from './auth/guards';
+import { validationExceptionFactory } from './auth/validation-error.util';
 
 async function bootstrap() {
   const app = await NestFactory.create(WardrobeApiGatewayModule);
@@ -23,6 +24,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: validationExceptionFactory,
     }),
   );
 

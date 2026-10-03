@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 
 import {
@@ -16,6 +17,7 @@ import {
 import { UserAccountEntity } from '@app/common/database/entities/auth';
 import {
   AssistantMessageDto,
+  AssistantOutfitSuggestionDto,
   AssistantSessionDto,
   ChatRequestDto,
   GenerateOutfitRequestDto,
@@ -27,8 +29,17 @@ import { AssistantProtectedData } from '../types/protected-data.type';
 import { decryptProtectedData, encryptProtectedData } from '@app/common';
 
 import { ContextBuilderService } from './context-builder.service';
-import { GeminiClientService } from './gemini-client.service';
+import {
+  ChatHistoryMessage,
+  GeminiClientService,
+} from './gemini-client.service';
 import { WebhookQueueService } from './webhook-queue.service';
+
+/** Session topic for a new chat whose first message carries no text. */
+export const ATTACHMENT_ONLY_TOPIC = 'Attached items';
+
+const describeAttachments = (count: number) =>
+  `Attached ${count} ${count === 1 ? 'item' : 'items'}`;
 
 @Injectable()
 export class ConversationService {
@@ -48,39 +59,84 @@ export class ConversationService {
   ) {}
 
   async handleChat(accountId: number, dto: ChatRequestDto) {
+    // QA-34: a message may be only attached items (or reference images) with
+    // no text. Text-less *and* attachment-less stays rejected - there is
+    // nothing to answer. Checked before any row is written.
+    const attachmentCount =
+      (dto.contextItemIds?.length ?? 0) + (dto.referenceImageKeys?.length ?? 0);
+    const hasText = dto.prompt.trim().length > 0;
+    if (!hasText && attachmentCount === 0) {
+      throw new BadRequestException(
+        'prompt must not be empty unless items are attached',
+      );
+    }
+
     const accountPreview = await this.getAccountPreview(accountId);
     const session = await this.resolveSession(
       accountId,
       dto.sessionId,
-      dto.topic ?? this.deriveTopic(dto.prompt),
+      dto.topic ??
+        (hasText ? this.deriveTopic(dto.prompt) : ATTACHMENT_ONLY_TOPIC),
     );
 
-    const context = await this.contextBuilder.buildContext(accountPreview, {
-      contextItemIds: dto.contextItemIds,
-      referenceImageKeys: dto.referenceImageKeys,
-    });
+    const [referenceImageUrls, history, seedSummary, calendarConnected] =
+      await Promise.all([
+        this.contextBuilder.fetchReferenceImageUrls(dto.referenceImageKeys),
+        this.loadChatHistory(session.id),
+        this.contextBuilder.buildSeedSummary(accountPreview),
+        this.contextBuilder.isCalendarConnected(accountId),
+      ]);
 
+    const referenceImages =
+      await this.contextBuilder.fetchReferenceImageParts(referenceImageUrls);
+
+    // An attachment-only turn is persisted with a readable stand-in rather
+    // than "": the transcript would otherwise show an empty bubble, and the
+    // row is replayed as history text on later turns, where an empty text
+    // part carries no meaning for the model.
     await this.messageRepository.save({
       sessionId: session.id,
       role: 'user',
-      content: dto.prompt,
-      attachments: context.referenceImageUrls,
+      content: hasText ? dto.prompt : describeAttachments(attachmentCount),
+      attachments: referenceImageUrls,
     });
 
     const response = await this.geminiClient.generateChatResponse({
       prompt: dto.prompt,
-      wardrobeItems: context.wardrobeItems,
-      referenceImageUrls: context.referenceImageUrls,
-      activeWardrobeItems: context.activeWardrobeItems,
-      weather: context.weather,
-      recentlyWorn: context.recentlyWorn,
+      history,
+      referenceImages,
+      seedSummary,
+      contextItemIds: dto.contextItemIds,
+      calendarConnected,
+      // accountId is bound here, not declared as a tool parameter, so the model
+      // cannot address another user's wardrobe whatever arguments it emits.
+      executeTool: (name, args) =>
+        this.contextBuilder.executeTool(name, args, accountPreview),
     });
 
     const assistantMessage = await this.messageRepository.save({
       sessionId: session.id,
       role: 'assistant',
-      content: response,
+      content: response.text,
     });
+
+    let suggestionDto: AssistantOutfitSuggestionDto | undefined;
+
+    if (response.outfitProposal) {
+      const suggestion = await this.outfitRepository.save({
+        sessionId: session.id,
+        messageId: assistantMessage.id,
+        summary: response.outfitProposal.summary,
+        wardrobeItemIds: response.outfitProposal.itemIds,
+        extraMetadata: { rationale: response.outfitProposal.rationale },
+      });
+
+      suggestionDto = plainToInstance(
+        AssistantOutfitSuggestionDto,
+        suggestion,
+        { excludeExtraneousValues: true },
+      );
+    }
 
     await this.webhookQueueService.scheduleJob(accountId, {
       type: 'chat',
@@ -88,11 +144,13 @@ export class ConversationService {
       message: plainToInstance(AssistantMessageDto, assistantMessage, {
         excludeExtraneousValues: true,
       }),
+      suggestion: suggestionDto,
     });
 
     return {
       sessionId: session.id,
       assistantMessageId: assistantMessage.id,
+      outfitSuggestionId: suggestionDto?.id,
     };
   }
 
@@ -100,29 +158,50 @@ export class ConversationService {
     accountId: number,
     dto: GenerateOutfitRequestDto,
   ) {
+    const accountPreview = await this.getAccountPreview(accountId);
     const session = await this.resolveSession(
       accountId,
       dto.sessionId,
       dto.occasion,
     );
 
-    const accountPreview = await this.getAccountPreview(accountId);
+    const [history, seedSummary, calendarConnected] = await Promise.all([
+      this.loadChatHistory(session.id),
+      this.contextBuilder.buildSeedSummary(accountPreview),
+      this.contextBuilder.isCalendarConnected(accountId),
+    ]);
 
-    const context = await this.contextBuilder.buildContext(accountPreview, {
-      contextItemIds: dto.wardrobeItemIds,
-    });
-
-    const summary = await this.geminiClient.generateOutfitSummary({
-      occasion: dto.occasion,
-      styleHint: dto.styleHint,
-      season: dto.season,
-      wardrobeItems: context.wardrobeItems,
-      activeWardrobeItems: context.activeWardrobeItems,
-      weather: context.weather,
-      recentlyWorn: context.recentlyWorn,
-    });
+    const prompt = this.composeOutfitRequestPrompt(dto);
 
     await this.messageRepository.save({
+      sessionId: session.id,
+      role: 'user',
+      content: prompt,
+    });
+
+    const response = await this.geminiClient.generateChatResponse({
+      prompt,
+      history,
+      referenceImages: [],
+      seedSummary,
+      // The ids on the request are a starting constraint, not a hard limit —
+      // the model may confirm them via get_item_details and still extend or
+      // replace them with anything it finds through search_wardrobe.
+      contextItemIds: dto.wardrobeItemIds,
+      // Model-facing only — never persisted as message content, so the
+      // client-visible transcript doesn't show internal tool-name plumbing.
+      additionalInstruction:
+        'Once you are confident in the outfit, call propose_outfit with the final summary, rationale and item ids.',
+      calendarConnected,
+      executeTool: (name, args) =>
+        this.contextBuilder.executeTool(name, args, accountPreview),
+    });
+
+    const proposal = response.outfitProposal;
+    const summary = proposal?.summary ?? response.text;
+    const wardrobeItemIds = proposal?.itemIds ?? dto.wardrobeItemIds;
+
+    const assistantMessage = await this.messageRepository.save({
       sessionId: session.id,
       role: 'assistant',
       content: summary,
@@ -130,12 +209,19 @@ export class ConversationService {
 
     const outfit = await this.outfitRepository.save({
       sessionId: session.id,
+      messageId: assistantMessage.id,
       summary,
-      wardrobeItemIds: dto.wardrobeItemIds,
+      wardrobeItemIds,
       extraMetadata: {
         occasion: dto.occasion,
         styleHint: dto.styleHint,
         season: dto.season,
+        // false when the model answered without calling propose_outfit —
+        // e.g. a clarifying question — so consumers can tell a real
+        // suggestion from a fallback that only preserves the "always get a
+        // row back" contract.
+        proposed: Boolean(proposal),
+        ...(proposal ? { rationale: proposal.rationale } : {}),
       },
     });
 
@@ -143,7 +229,7 @@ export class ConversationService {
       type: 'outfit',
       sessionId: session.id,
       summary,
-      wardrobeItemIds: dto.wardrobeItemIds,
+      wardrobeItemIds,
       metadata: outfit.extraMetadata,
     });
 
@@ -151,6 +237,26 @@ export class ConversationService {
       sessionId: session.id,
       outfitSuggestionId: outfit.id,
     };
+  }
+
+  /**
+   * The seeded user turn for outfit-generation requests — occasion/styleHint/
+   * season become plain text in the same turn chat uses, not a separately
+   * composed prompt. `wardrobeItemIds` rides on `contextItemIds` instead
+   * (handled by GeminiClientService the same way it is for chat), so this
+   * path adds no prompt-assembly logic of its own. This exact string is also
+   * what gets persisted as the user message row, so it stays free of
+   * internal tool-name instructions — those ride on `additionalInstruction`
+   * instead, which GeminiClientService appends to the model-facing turn only.
+   */
+  private composeOutfitRequestPrompt(dto: GenerateOutfitRequestDto): string {
+    return [
+      `Suggest a complete outfit for this occasion: ${dto.occasion}.`,
+      dto.styleHint ? `Style hint: ${dto.styleHint}` : null,
+      dto.season ? `Season: ${dto.season}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   async getSessions(accountId: number): Promise<AssistantSessionDto[]> {
@@ -192,6 +298,30 @@ export class ConversationService {
 
     return plainToInstance(AssistantMessageDto, messages, {
       excludeExtraneousValues: true,
+    });
+  }
+
+  /**
+   * QA-35: deletes one of the caller's sessions. Ownership is checked first
+   * and the delete itself is filtered by `accountId` too, so another user's
+   * session id is a 404 and deletes nothing. Messages are deleted explicitly
+   * in the same transaction rather than left to the `session_id` FK's ON
+   * DELETE CASCADE, so the behaviour does not hinge on the constraint having
+   * been created with CASCADE on every database. The session's outfit
+   * suggestions are removed by the schema's own cascades: `session_id` is a
+   * NOT NULL, ON DELETE CASCADE reference, and the nullable `message_id` is
+   * ON DELETE CASCADE too - keeping them would need a schema change outside
+   * this service.
+   */
+  async deleteSession(accountId: number, sessionId: string): Promise<void> {
+    await this.ensureSessionOwnership(accountId, sessionId);
+
+    await this.sessionRepository.manager.transaction(async (manager) => {
+      await manager.delete(AssistantMessageEntity, { sessionId });
+      await manager.delete(AssistantSessionEntity, {
+        id: sessionId,
+        accountId,
+      });
     });
   }
 
@@ -330,5 +460,25 @@ export class ConversationService {
 
   private deriveTopic(prompt: string) {
     return prompt.length > 60 ? `${prompt.slice(0, 57)}...` : prompt;
+  }
+
+  private async loadChatHistory(
+    sessionId: string,
+  ): Promise<ChatHistoryMessage[]> {
+    const limit = this.configService.get<number>(
+      'AI_HISTORY_MESSAGE_LIMIT',
+      10,
+    );
+
+    const messages = await this.messageRepository.find({
+      where: { sessionId, role: In(['user', 'assistant']) },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+
+    return messages.reverse().map((message) => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      text: message.content,
+    }));
   }
 }

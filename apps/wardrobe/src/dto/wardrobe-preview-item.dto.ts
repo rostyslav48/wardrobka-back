@@ -1,5 +1,11 @@
 import { Expose } from 'class-transformer';
-import { ItemStatus, ItemType, Season, Size } from '@app/wardrobe/enums';
+import {
+  ImageStatus,
+  ItemStatus,
+  ItemType,
+  Season,
+  Size,
+} from '@app/wardrobe/enums';
 
 export class WardrobeItemPreviewDto {
   @Expose()
@@ -28,4 +34,7 @@ export class WardrobeItemPreviewDto {
 
   @Expose()
   size?: Size;
+
+  @Expose()
+  image_status: ImageStatus;
 }

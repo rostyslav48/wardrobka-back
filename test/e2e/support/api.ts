@@ -116,3 +116,24 @@ export async function postJson(
   }
   throw new Error(`${url} stayed rate limited`);
 }
+
+/**
+ * Same retry-past-429 behaviour as `postJson`, for PATCH. Needed now that
+ * `PATCH /wardrobe/:id` shares the image-generation throttle bucket (it can
+ * trigger a paid generation when `generate_image` and an image are both
+ * present) — plain field-only patches still consume a slot in that bucket
+ * even though they never generate anything.
+ */
+export async function patchJson(
+  ctx: APIRequestContext,
+  url: string,
+  user: TestUser,
+  data: unknown,
+) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const res = await ctx.patch(url, { headers: auth(user), data: data as any });
+    if (res.status() !== 429) return res;
+    await throttleGap();
+  }
+  throw new Error(`${url} stayed rate limited`);
+}

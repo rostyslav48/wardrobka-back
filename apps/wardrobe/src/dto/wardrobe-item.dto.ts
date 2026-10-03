@@ -1,5 +1,6 @@
 import {
   FitType,
+  ImageStatus,
   ItemStatus,
   ItemType,
   Season,
@@ -52,4 +53,7 @@ export class WardrobeItemDto {
 
   @Expose()
   brand?: string;
+
+  @Expose()
+  image_status: ImageStatus;
 }

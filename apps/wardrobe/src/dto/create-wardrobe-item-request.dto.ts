@@ -63,4 +63,15 @@ export class CreateWardrobeItemRequestDto {
   @IsString()
   @MaxLength(100)
   brand?: string;
+
+  /**
+   * "Generate clean product image" toggle. Transport-only — it decides whether
+   * the uploaded photo is stashed under `tmp/` and a generation job is emitted,
+   * and is never persisted on the entity. Multipart bodies carry it as the
+   * string 'true'/'false', hence the Transform (mirrors `favourite`).
+   */
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
+  generate_image?: boolean = false;
 }

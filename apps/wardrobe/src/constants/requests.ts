@@ -5,6 +5,8 @@ export const WARDROBE_REQUESTS = {
   update: 'wardrobe/update',
   delete: 'wardrobe/delete',
   findManyByIds: 'wardrobe/get_many_by_ids',
+  applyGeneratedImage: 'wardrobe/apply_generated_image',
+  retryImageGeneration: 'wardrobe/retry_image_generation',
 };
 
 export const OUTFIT_LOG_REQUESTS = {

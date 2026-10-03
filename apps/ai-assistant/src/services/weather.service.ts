@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { catchError, map, Observable, of, switchMap } from 'rxjs';
+import { catchError, map, Observable, of, switchMap, tap } from 'rxjs';
 
 import { HttpService } from '@app/common/http';
+import { ErrorLoggerService } from '@app/logger';
 
 import { DayForecast, WeatherContext } from '../types/weather-context.type';
 
@@ -26,20 +27,49 @@ interface ForecastResponse {
 const GEO_URL = 'https://api.openweathermap.org/geo/1.0/direct';
 const FORECAST_URL = 'https://api.openweathermap.org/data/2.5/forecast';
 const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface CacheEntry {
+  value: WeatherContext | null;
+  expiresAt: number;
+}
 
 @Injectable()
 export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
+  private readonly cache = new Map<string, CacheEntry>();
+  private readonly cacheTtlMs: number;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-  ) {}
+    private readonly errorLogger: ErrorLoggerService,
+  ) {
+    this.cacheTtlMs = Number(
+      this.configService.get<number>(
+        'AI_WEATHER_CACHE_TTL_MS',
+        DEFAULT_CACHE_TTL_MS,
+      ),
+    );
+  }
 
+  /**
+   * Cached per city for AI_WEATHER_CACHE_TTL_MS. The tool loop can ask for the
+   * forecast more than once in an exchange (different `days`, or a follow-up
+   * message in the same session) and the forecast does not move on that
+   * timescale, so only the first ask reaches OpenWeatherMap.
+   */
   getForecast(city: string): Observable<WeatherContext | null> {
     const apiKey = this.configService.get<string>('OPENWEATHERMAP_API_KEY');
     if (!apiKey || !city) {
       return of(null);
+    }
+
+    const key = city.trim().toLowerCase();
+    const cached = this.cache.get(key);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return of(cached.value);
     }
 
     return this.geocode(city, apiKey).pipe(
@@ -62,13 +92,33 @@ export class WeatherService {
           .pipe(map((data) => this.mapResponse(location.name, data)));
       }),
       catchError((error) => {
-        this.logger.warn(
-          `Weather forecast failed for "${city}": ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Weather forecast failed for "${city}": ${message}`);
+        try {
+          this.errorLogger.error({
+            context: WeatherService.name,
+            message,
+            errorName: error instanceof Error ? error.name : undefined,
+            stack: error instanceof Error ? error.stack : undefined,
+            meta: { city },
+          });
+        } catch (loggingError) {
+          this.logger.warn(
+            `Failed to write error log for weather failure: ${
+              loggingError instanceof Error
+                ? loggingError.message
+                : String(loggingError)
+            }`,
+          );
+        }
         return of(null);
       }),
+      tap((value) =>
+        this.cache.set(key, {
+          value,
+          expiresAt: Date.now() + this.cacheTtlMs,
+        }),
+      ),
     );
   }
 

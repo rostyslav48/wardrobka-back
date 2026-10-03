@@ -53,6 +53,16 @@ export class AiAssistantService {
     );
   }
 
+  deleteSession(sessionId: string, user: UserAccountPreview) {
+    return firstValueFrom(
+      this.aiClient.send(
+        AI_ASSISTANT_REQUESTS.deleteSession,
+        { sessionId },
+        user,
+      ),
+    );
+  }
+
   upsertWebhookKey(dto: UpsertWebhookKeyDto, user: UserAccountPreview) {
     return firstValueFrom(
       this.aiClient.send(AI_ASSISTANT_REQUESTS.upsertWebhookKey, dto, user),

@@ -24,9 +24,17 @@ import {
   CreateWardrobeItemRequestDto,
   UpdateWardrobeItemRequestDto,
 } from '@app/wardrobe/dto';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { ImageUploadValidationPipe } from '@app/wardrobe-api-gateway/wardrobe/validators';
+import {
+  FriendlyThrottlerGuard,
+  ImageGenerationThrottlerGuard,
+} from '@app/wardrobe-api-gateway/wardrobe/guards';
 import { CurrentUser } from '@app/wardrobe-api-gateway/auth/decorators';
+import {
+  ANALYZE_IMAGE_THROTTLE,
+  IMAGE_GENERATION_THROTTLE,
+} from '@app/wardrobe-api-gateway/wardrobe/constants';
 import { UserAccountPreview } from '@app/auth/users/types';
 
 @Controller('wardrobe')
@@ -35,8 +43,8 @@ export class WardrobeController {
 
   @Post()
   @UseInterceptors(FileInterceptor('image'))
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { ttl: 5000, limit: 1 } })
+  @UseGuards(ImageGenerationThrottlerGuard)
+  @Throttle(IMAGE_GENERATION_THROTTLE)
   create(
     @Body() createWardrobeDto: CreateWardrobeItemRequestDto,
     @CurrentUser() user: UserAccountPreview,
@@ -61,6 +69,8 @@ export class WardrobeController {
 
   @Patch(':id')
   @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(ImageGenerationThrottlerGuard)
+  @Throttle(IMAGE_GENERATION_THROTTLE)
   update(
     @Param('id') id: string,
     @Body()
@@ -75,5 +85,31 @@ export class WardrobeController {
   @Delete(':id')
   delete(@Param('id') id: string, @CurrentUser() user: UserAccountPreview) {
     return this.wardrobeService.delete(+id, user);
+  }
+
+  /**
+   * "Generate again" for an item whose generation failed. Same throttle as
+   * create: it starts the same paid job, so it cannot be the cheap way in.
+   */
+  @Post(':id/generate-image')
+  @UseGuards(ImageGenerationThrottlerGuard)
+  @Throttle(IMAGE_GENERATION_THROTTLE)
+  retryImageGeneration(
+    @Param('id') id: string,
+    @CurrentUser() user: UserAccountPreview,
+  ) {
+    return this.wardrobeService.retryImageGeneration(+id, user);
+  }
+
+  @Post('analyze-image')
+  @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(FriendlyThrottlerGuard)
+  @Throttle(ANALYZE_IMAGE_THROTTLE)
+  analyzeImage(
+    @CurrentUser() user: UserAccountPreview,
+    @UploadedFile(ImageUploadValidationPipe)
+    image?: Express.Multer.File,
+  ) {
+    return this.wardrobeService.analyzeImage(image, user);
   }
 }

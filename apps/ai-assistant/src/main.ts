@@ -17,6 +17,11 @@ async function bootstrap() {
     }),
   );
   await app.startAllMicroservices();
+  // `connectMicroservice` marks the microservice as already initialized and
+  // its init hook as already called, so `startAllMicroservices()` alone runs
+  // no lifecycle hook. Without this @nestjs/schedule never registers its
+  // timers and the webhook dispatcher's @Interval is dead code.
+  await app.init();
 }
 
 bootstrap();
