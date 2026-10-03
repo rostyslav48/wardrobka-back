@@ -46,11 +46,17 @@ const COST_PER_IMAGE_USD: Record<string, number> = {
 // returned the garment still tilted at its photographed angle. "Rotate" is
 // split out here: in-plane rotation is asked for explicitly, and what is
 // forbidden is naming a camera/viewpoint change rather than rotation as such.
+//
+// The colour line comes from the 2026-10-03 spike: on 25 real photos, three
+// muted items drifted in hue during relighting (grey to pale blue, grey to
+// sage, olive-grey to black). "Keep the same colour" in the line above was
+// not enough on its own, so the hue is pinned explicitly.
 const GENERATION_PROMPT = [
   'Turn this photo of a single clothing item into a clean e-commerce product image.',
   'Remove the background entirely and replace it with a plain, uniform white background.',
   'Straighten the garment: rotate it within the picture plane until it is perfectly upright and square — neckline or waistband level across the top, hem level across the bottom, no tilt — then centre it, present it flat-lay style, and relight it evenly with soft, neutral studio lighting.',
   'Keep the same face of the garment towards the camera as in the photo. Do NOT move the camera to a different angle, do NOT turn the garment around to reveal a side the photo does not show, and do NOT invent, redraw or complete any part of it. Keep the exact same view, cut, proportions, colour, texture, print, logos and hardware.',
+  "Reproduce the garment's exact colour as it would look in neutral daylight. Correct only the colour cast of the room lighting; do not shift the hue — a muted grey must stay grey rather than turning blue, green or black, and a dark olive must stay olive.",
   'Remove any hanger, mannequin, person, hands or props. Output only the garment on white.',
 ].join('\n');
 

@@ -43,7 +43,10 @@ describe('ProductImageGeneratorService', () => {
     candidates: [{ content: { parts: [{ inlineData: { mimeType, data } }] } }],
   });
 
-  const okDownload = (bytes = 'original-bytes', contentType = 'image/jpeg') => ({
+  const okDownload = (
+    bytes = 'original-bytes',
+    contentType = 'image/jpeg',
+  ) => ({
     ok: true,
     status: 200,
     headers: { get: () => contentType },
@@ -137,6 +140,18 @@ describe('ProductImageGeneratorService', () => {
     expect(prompt).toMatch(/rotate it within the picture plane/i);
     expect(prompt).toMatch(/do not move the camera to a different angle/i);
     expect(prompt).toMatch(/do not invent, redraw or complete/i);
+  });
+
+  // Spike 2026-10-03: three muted items drifted in hue during relighting.
+  it('instructs the model to keep the garment hue while correcting the lighting cast', async () => {
+    generateContentMock.mockResolvedValue(imageResponse('generated-bytes'));
+
+    await service.generate(input);
+
+    const prompt = generateContentMock.mock.calls[0][0].contents[0].parts[0]
+      .text as string;
+    expect(prompt).toMatch(/exact colour/i);
+    expect(prompt).toMatch(/do not shift the hue/i);
   });
 
   // S3DiskUtil.upload sets no ContentType, so the bucket serves originals as

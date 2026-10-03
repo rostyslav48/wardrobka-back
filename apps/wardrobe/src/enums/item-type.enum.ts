@@ -20,4 +20,8 @@ export enum ItemType {
   Raincoat = 'raincoat',
   Windbreaker = 'windbreaker',
   Polo = 'polo',
+  Sneakers = 'sneakers',
+  Shoes = 'shoes',
+  Boots = 'boots',
+  Sandals = 'sandals',
 }

@@ -78,9 +78,99 @@ describe('ImageAnalyzerService', () => {
       'type',
       'color',
       'season',
-      'size',
       'fit_type',
+      'name',
+      'description',
     ]);
+  });
+
+  // Spike 2026-10-03: a required size was forced to "m" on almost every item.
+  // It is now read only from a legible tag, so a response without one must
+  // come back without a size rather than with a placeholder.
+  it('treats size as optional and omits it when the model returns none', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: true,
+        type: ItemType.TShirt,
+        color: 'White',
+        season: Season.Summer,
+        fit_type: FitType.Regular,
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.size).toBeUndefined();
+    expect(result.type).toBe(ItemType.TShirt);
+  });
+
+  it('instructs the model to read size only from a legible tag, and always to write a name and description', async () => {
+    generateContentMock.mockResolvedValue(jsonResponse({}));
+
+    await service.analyze('base64-bytes', 'image/jpeg');
+
+    const prompt = generateContentMock.mock.calls[0][0].contents[0].parts[0]
+      .text as string;
+    expect(prompt).toMatch(/"size": only when a size label or tag is legible/);
+    expect(prompt).toMatch(/never estimate a size/i);
+    expect(prompt).toMatch(
+      /"name": when "is_clothing" is true, always provide/,
+    );
+    expect(prompt).toMatch(
+      /"description": when "is_clothing" is true, always provide/,
+    );
+    expect(prompt).toMatch(/Never guess a brand/);
+  });
+
+  // Spike 2026-10-03: borderline items flipped between runs (a blue-grey tee
+  // came back Gray, Gray, Blue) until the call ran at temperature 0 and the
+  // prompt carried each swatch's reference colour rather than just its name.
+  it('runs at temperature 0 and gives the model every swatch reference colour', async () => {
+    generateContentMock.mockResolvedValue(jsonResponse({}));
+
+    await service.analyze('base64-bytes', 'image/jpeg');
+
+    const call = generateContentMock.mock.calls[0][0];
+    const prompt = call.contents[0].parts[0].text as string;
+    expect(call.config.temperature).toBe(0);
+    for (const swatch of SWATCHES) {
+      expect(prompt).toContain(`${swatch.label} ${swatch.hex}`);
+    }
+  });
+
+  it('accepts an EU shoe size for footwear', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: true,
+        type: ItemType.Sneakers,
+        color: 'Gray',
+        season: Season.Autumn,
+        fit_type: FitType.Regular,
+        size: Size.Eu42,
+        name: 'Gray Suede Sneakers',
+        description: 'Gray suede sneakers.',
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.size).toBe('42');
+  });
+
+  it('accepts the footwear types in the response schema', async () => {
+    generateContentMock.mockResolvedValue(
+      jsonResponse({
+        is_clothing: true,
+        type: ItemType.Sneakers,
+        color: 'Gray',
+        season: Season.Autumn,
+        fit_type: FitType.Regular,
+      }),
+    );
+
+    const result = await service.analyze('base64-bytes', 'image/jpeg');
+
+    expect(result.type).toBe(ItemType.Sneakers);
   });
 
   it('passes an AbortSignal deadline to the Gemini call', async () => {
@@ -135,12 +225,18 @@ describe('ImageAnalyzerService', () => {
         season: Season.Winter,
         size: Size.S,
         fit_type: FitType.Skinny,
+        name: 'Green Leaf',
+        description: 'A green leaf.',
+        brand: 'Nature',
       }),
     );
 
     const result = await service.analyze('base64-bytes', 'image/jpeg');
 
     expect(result.is_clothing).toBe(false);
+    expect(result.name).toBeUndefined();
+    expect(result.description).toBeUndefined();
+    expect(result.brand).toBeUndefined();
   });
 
   it('maps the colour label to its exact swatch hex', async () => {

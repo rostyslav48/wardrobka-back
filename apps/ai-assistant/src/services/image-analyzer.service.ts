@@ -51,13 +51,26 @@ const DEFAULT_TIMEOUT_MS = 15000;
 // response schema requires them either way) — the caller is expected to
 // disregard them once is_clothing is false rather than the model being
 // allowed to omit them and break the schema.
+//
+// Spike (2026-10-03, 25 real photos): the earlier "omit rather than guess"
+// wording applied to name and description too, so only 2 of 25 items came
+// back named and 11 described. Name and description are now written from
+// what is visible; the no-guessing rule stays on brand and size, the two
+// fields a photo can only show via a legible label. Size is no longer
+// required by the schema — it was forced to "m" on almost every item.
 const ANALYSIS_PROMPT = [
-  'You are analyzing a single photo for a wardrobe app that catalogs clothing items.',
-  'First decide whether the photo clearly shows a single wearable clothing item, shoe, bag or accessory. Set "is_clothing" to false for anything else — objects, plants, animals, food, people, scenery, screenshots, etc. — even if it vaguely resembles a garment.',
-  'Identify the item and return a JSON object matching the given schema.',
-  '"is_clothing", "type", "color", "season", "size" and "fit_type" are all required by the schema. When "is_clothing" is true, pick the closest valid value for the others from the schema even if you are not fully certain. When "is_clothing" is false, the other required fields are ignored by the caller — fill them with any valid placeholder rather than leaving the response inconsistent.',
-  '"name", "brand", "material", "style" and "description" are optional — omit any of them entirely rather than guessing when the photo does not clearly show it, and never populate them when "is_clothing" is false. Never invent a brand or a name.',
-  'The "color" value must be the single closest swatch label from the enum, even if the garment has multiple colors — pick the dominant one.',
+  'You are a fashion copywriter cataloguing a single item for a personal wardrobe app.',
+  'First decide whether the photo shows a wearable clothing item, shoes, bag or accessory as its main subject. It may be on a hanger, held in a hand, or hanging among other garments — catalogue the most prominent, most fully visible one. Set "is_clothing" to false for anything that is not wearable — objects, plants, animals, food, scenery, screenshots, etc. — even if it vaguely resembles a garment.',
+  'Return a JSON object matching the given schema.',
+  '"is_clothing", "type", "color", "season", "fit_type", "name" and "description" are required by the schema. When "is_clothing" is true, pick the closest valid value for the others from the schema even if you are not fully certain. When "is_clothing" is false, the other required fields are ignored by the caller — fill them with any valid placeholder rather than leaving the response inconsistent, and omit "brand", "material", "style" and "size".',
+  '"name": when "is_clothing" is true, always provide a short, specific product-style title of 2–5 words built from what you can see (colour + material or texture + defining detail + item), e.g. "Sage Linen Camp-Collar Shirt". Include a brand only when it is clearly legible.',
+  '"description": when "is_clothing" is true, always provide 2–3 natural sentences describing what is visible — cut and silhouette, neckline or collar, sleeves, closures, pockets, graphics or logos, fabric look and texture — then one short note on how it can be worn. Describe only what the photo shows; do not describe parts of the item that are hidden.',
+  '"material": the most likely fabric judging by its visible texture (e.g. "cotton jersey", "linen blend", "suede", "fleece-backed cotton"); omit it when the texture is truly unclear.',
+  '"style": one or two words such as casual, smart casual, streetwear, sporty, minimalist.',
+  '"brand": only when a logo or label is clearly legible in the photo. Never guess a brand.',
+  '"size": only when a size label or tag is legible in the photo. For clothing, use the letter size when it reads S, M, L, XL or XXL (or an equivalent such as "Medium"). For footwear, use the EU size printed on the tongue or insole label (e.g. "42"); a half size such as 42.5 rounds down, and a label showing only US or UK sizes means omit. Omit it in every other case — including waist sizes such as W32 — and never estimate a size from how the item looks.',
+  `The "color" value must be the single closest swatch label from the enum, even if the item has multiple colours — pick the dominant one. The swatches are reference colours, not loose names: ${SWATCHES.map((swatch) => `${swatch.label} ${swatch.hex}`).join(', ')}. Pick the swatch nearest to the item's actual colour. Judge the colour as it would look in neutral daylight, discounting a warm or cool cast from the room lighting. Use "Gray" for neutral greys and for greys with only a faint cool or warm tint; use a hue swatch only when that hue is clearly recognisable in the fabric itself — olive and khaki green are "Green", but a grey that merely looks greenish or bluish under the room light is "Gray". Use the same colour in "name" and "description" as in "color".`,
+  'Footwear types: "sneakers" are trainers and casual shoes with a rubber sole, including leather court sneakers; "shoes" are dress or smart shoes such as oxfords, derbies, loafers and boat shoes; "boots" reach the ankle or higher; "sandals" are open.',
 ].join('\n');
 
 @Injectable()
@@ -103,6 +116,10 @@ export class ImageAnalyzerService {
         ],
         config: {
           abortSignal: AbortSignal.timeout(this.timeoutMs),
+          // Classification, not creative writing: at the default temperature
+          // borderline items flipped between runs (a blue-grey tee came back
+          // Gray, Gray, Blue). Zero makes the same photo give the same answer.
+          temperature: 0,
           responseMimeType: 'application/json',
           responseSchema: this.buildResponseSchema(),
         },
@@ -145,13 +162,17 @@ export class ImageAnalyzerService {
         style: { type: Type.STRING },
         description: { type: Type.STRING },
       },
+      // name and description are required because the model dropped them on
+      // 3 of 25 real photos even when told to always write them. Placeholder
+      // text for a non-clothing photo is discarded in toAttributes.
       required: [
         'is_clothing',
         'type',
         'color',
         'season',
-        'size',
         'fit_type',
+        'name',
+        'description',
       ],
     };
   }
@@ -199,6 +220,10 @@ export class ImageAnalyzerService {
 
     const colorHex = this.toColorHex(raw.color);
     if (colorHex) attributes.color = colorHex;
+
+    // The schema forces placeholder text for a non-clothing photo; none of it
+    // describes a real item, so no free-text field is passed on (QA-43).
+    if (!attributes.is_clothing) return attributes;
 
     const name = this.toOptionalString(raw.name);
     if (name) attributes.name = name;
