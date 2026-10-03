@@ -1,0 +1,152 @@
+# Production stack for a single VPS. See DEPLOY.md.
+# Only Caddy publishes ports; Postgres, RabbitMQ and the services stay on the
+# compose network.
+
+x-app: &app
+  image: wardrobka-back:prod
+  pull_policy: never
+  restart: unless-stopped
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  postgresDb:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    logging: *logging
+    # Takes POSTGRES_USER and POSTGRES_PASSWORD from the same file the services
+    # use. The database itself is created by the migrate container.
+    env_file:
+      - ./libs/common/src/database/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    pull_policy: build
+    restart: 'no'
+    command: npm run db:bootstrap
+    env_file:
+      - ./libs/common/src/database/.env
+    environment:
+      # typeOrm.config.ts reads POSTGRES_HOST, not POSTGRES_DOCKER_HOST.
+      POSTGRES_HOST: postgresDb
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgresDb:
+        condition: service_healthy
+
+  wardrobe-api-gateway:
+    <<: *app
+    command: node dist/apps/wardrobe-api-gateway/main
+    env_file:
+      - ./apps/wardrobe-api-gateway/.env
+      - ./libs/common/src/jwt/.env
+      # @app/common evaluates typeOrm.config.ts on import, so this service
+      # needs the database variables even though it never queries Postgres.
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  wardrobe:
+    <<: *app
+    command: node dist/apps/wardrobe/main
+    env_file:
+      - ./apps/wardrobe/.env
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  auth:
+    <<: *app
+    command: node dist/apps/auth/main
+    env_file:
+      - ./apps/auth/.env
+      - ./libs/common/src/database/.env
+      - ./libs/common/src/jwt/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  media-storage:
+    <<: *app
+    command: node dist/apps/media-storage/main
+    env_file:
+      - ./apps/media-storage/.env
+      - ./.env
+      # @app/common evaluates typeOrm.config.ts on import, so this service
+      # needs the database variables even though it never queries Postgres.
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  ai-assistant:
+    <<: *app
+    command: node dist/apps/ai-assistant/main
+    env_file:
+      - ./apps/ai-assistant/.env
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  logger:
+    <<: *app
+    command: node dist/apps/logger/main
+    env_file:
+      - ./apps/logger/.env
+      - ./libs/common/src/database/.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in the root .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - wardrobe-api-gateway
+
+volumes:
+  postgres_data:
+  caddy_data:

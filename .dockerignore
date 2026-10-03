@@ -1,0 +1,12 @@
+.git
+node_modules
+dist
+.claude
+.e2e-cache
+test-results
+playwright-report
+coverage
+
+# Secrets reach containers through env_file at runtime, never through the image.
+.env
+**/.env

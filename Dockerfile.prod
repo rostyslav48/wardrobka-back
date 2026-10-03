@@ -1,0 +1,16 @@
+# One image for every service; docker-compose.prod.yml picks the app each
+# container runs. Dev dependencies stay installed because the migrate container
+# runs the TypeORM migrations through ts-node.
+FROM node:20-alpine
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm ci
+
+COPY . .
+
+RUN for app in wardrobe-api-gateway wardrobe auth media-storage ai-assistant logger; do \
+      npx nest build "$app" || exit 1; \
+    done
